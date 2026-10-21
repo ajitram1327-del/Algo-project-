@@ -114,3 +114,17 @@ def test_valhalla_status_and_polyline():
     assert isinstance(coords[0][0], float)
     assert isinstance(coords[0][1], float)
 
+
+def test_overpass_chargers_and_distance():
+    from backend.services.overpass import haversine_distance_m
+
+    # Distance between Manipal (13.3525, 74.7865) and Malpe (13.3540, 74.7003) is ~9.3 km
+    dist_m = haversine_distance_m(13.3525, 74.7865, 13.3540, 74.7003)
+    assert 9000 < dist_m < 10000
+
+    # Test endpoint
+    res = client.get("/api/chargers?lat=13.3409&lon=74.7858&distance_km=10")
+    assert res.status_code == 200
+    assert isinstance(res.json(), list)
+
+

@@ -15,11 +15,13 @@ try:
     from backend.services.ai_agent import generate_driver_briefing
     from backend.services.openchargemap import fetch_ocm_chargers
     from backend.services.valhalla import check_valhalla_status, get_valhalla_route_3d
+    from backend.services.overpass import find_nearby_chargers
 except ImportError:
     from app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from services.ai_agent import generate_driver_briefing
     from services.openchargemap import fetch_ocm_chargers
     from services.valhalla import check_valhalla_status, get_valhalla_route_3d
+    from services.overpass import find_nearby_chargers
 
 app = FastAPI(title="Physics-Aware EV Route Engine", version="2.0")
 
@@ -85,12 +87,52 @@ def get_vehicles():
 
 
 @app.get("/api/chargers")
-async def get_chargers(lat: float = 13.3409, lon: float = 74.7858, distance_km: float = 25.0):
+async def get_chargers(
+    lat: float = 13.3409,
+    lon: float = 74.7858,
+    distance_km: float = 25.0,
+    source: str = "all",
+):
     """
-    Returns nearby EV charging stations using Open Charge Map API or corridor stations.
+    Returns nearby EV charging stations using Open Charge Map API,
+    OpenStreetMap Overpass API, or corridor fallback stations.
     """
-    chargers = await fetch_ocm_chargers(lat=lat, lon=lon, distance_km=distance_km)
-    return chargers
+    if source == "overpass":
+        return await find_nearby_chargers(user_lat=lat, user_lon=lon, radius_meters=int(distance_km * 1000))
+    
+    if source == "ocm":
+        return await fetch_ocm_chargers(lat=lat, lon=lon, distance_km=distance_km)
+
+    # Combined mode ("all")
+    ocm_list = await fetch_ocm_chargers(lat=lat, lon=lon, distance_km=distance_km)
+    try:
+        overpass_list = await find_nearby_chargers(user_lat=lat, user_lon=lon, radius_meters=int(distance_km * 1000))
+    except Exception:
+        overpass_list = []
+
+    # Merge avoiding duplicate coords
+    seen_coords = set()
+    combined = []
+
+    for c in ocm_list + overpass_list:
+        coord_key = (round(c.get("lat", 0), 3), round(c.get("lon", 0), 3))
+        if coord_key not in seen_coords:
+            seen_coords.add(coord_key)
+            combined.append(c)
+
+    return combined
+
+
+@app.get("/api/chargers/overpass")
+async def get_overpass_chargers(
+    lat: float = 13.3409,
+    lon: float = 74.7858,
+    radius_meters: int = 25000,
+):
+    """
+    Direct endpoint for OpenStreetMap Overpass charging station discovery.
+    """
+    return await find_nearby_chargers(user_lat=lat, user_lon=lon, radius_meters=radius_meters)
 
 
 @app.get("/api/valhalla/status")
