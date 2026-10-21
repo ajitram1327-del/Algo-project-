@@ -9,6 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     from backend.app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
