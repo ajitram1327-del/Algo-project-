@@ -216,9 +216,10 @@ class UniversalEVPhysicsEngine:
                 continue
 
             delta_ele = ele2 - ele1
-            gradient_ratio = delta_ele / d_m
-            gradient_percent = gradient_ratio * 100.0
-            theta = math.atan(gradient_ratio)
+            raw_gradient = (delta_ele / d_m) * 100.0
+            # Clamp road gradient to realistic civil engineering bounds (-18% to +18%)
+            gradient_percent = max(-18.0, min(18.0, raw_gradient))
+            theta = math.atan(gradient_percent / 100.0)
 
             if abs(gradient_percent) > max_grad:
                 max_grad = abs(gradient_percent)
