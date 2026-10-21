@@ -249,9 +249,10 @@ export default function RouteMap({
 
         {/* Charging Station Points (Corridor Network & Recommended Stops) */}
         {stationsToDisplay.map(({ station: stop, isRecommended }) => {
-          if (!stop.coordinates || stop.coordinates.length < 2) return null;
-          // stop.coordinates is [lng, lat] -> Leaflet wants [lat, lng]
-          const stopPos: [number, number] = [stop.coordinates[1], stop.coordinates[0]];
+          const lng = stop.coordinates ? stop.coordinates[0] : (stop.lon ?? stop.lng);
+          const lat = stop.coordinates ? stop.coordinates[1] : stop.lat;
+          if (lat === undefined || lng === undefined) return null;
+          const stopPos: [number, number] = [lat, lng];
 
           return (
             <Marker
@@ -290,26 +291,30 @@ export default function RouteMap({
                         {stop.power_kw} kW Ultra-Fast DC
                       </span>
                     </div>
-                    {isRecommended && (
+                    {isRecommended && stop.arrival_soc !== undefined && (
                       <>
                         <div className="flex justify-between">
                           <span className="text-slate-400">Arrival Battery:</span>
                           <span className="text-amber-400 font-semibold">{stop.arrival_soc.toFixed(1)}%</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Target Recharged:</span>
-                          <span className="text-emerald-400 font-semibold">{stop.departure_soc.toFixed(1)}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Est. Charge Time:</span>
-                          <span className="text-slate-200 font-semibold">~{stop.charge_time_min.toFixed(0)} mins</span>
-                        </div>
+                        {stop.departure_soc !== undefined && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Target Recharged:</span>
+                            <span className="text-emerald-400 font-semibold">{stop.departure_soc.toFixed(1)}%</span>
+                          </div>
+                        )}
+                        {stop.charge_time_min !== undefined && (
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Est. Charge Time:</span>
+                            <span className="text-slate-200 font-semibold">~{stop.charge_time_min.toFixed(0)} mins</span>
+                          </div>
+                        )}
                       </>
                     )}
                     <div className="flex justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800">
                       <span>Coordinates:</span>
                       <span className="font-mono text-slate-300">
-                        {stop.coordinates[1].toFixed(4)}, {stop.coordinates[0].toFixed(4)}
+                        {lat.toFixed(4)}, {lng.toFixed(4)}
                       </span>
                     </div>
                   </div>

@@ -12,12 +12,15 @@ export interface Vehicle {
 export interface ChargingStop {
   id: string;
   name: string;
-  coordinates: [number, number];
+  coordinates?: [number, number];
+  lat?: number;
+  lon?: number;
+  lng?: number;
   power_kw: number;
-  arrival_soc: number;
-  departure_soc: number;
-  charge_time_min: number;
-  energy_added_kwh: number;
+  arrival_soc?: number;
+  departure_soc?: number;
+  charge_time_min?: number;
+  energy_added_kwh?: number;
   is_mock?: boolean;
 }
 
@@ -46,6 +49,26 @@ export interface RouteSummary {
 
 export const fetchVehicles = async (): Promise<Vehicle[]> => {
   const res = await axios.get(`${API_BASE}/api/vehicles`);
+  return res.data;
+};
+
+export interface OcmCharger {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  power_kw: number;
+  source?: string;
+}
+
+export const fetchOcmChargers = async (
+  lat = 13.3409,
+  lon = 74.7858,
+  distance_km = 25
+): Promise<OcmCharger[]> => {
+  const res = await axios.get(`${API_BASE}/api/chargers`, {
+    params: { lat, lon, distance_km },
+  });
   return res.data;
 };
 

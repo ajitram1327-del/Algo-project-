@@ -13,9 +13,11 @@ import uvicorn
 try:
     from backend.app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from backend.services.ai_agent import generate_driver_briefing
+    from backend.services.openchargemap import fetch_ocm_chargers
 except ImportError:
     from app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from services.ai_agent import generate_driver_briefing
+    from services.openchargemap import fetch_ocm_chargers
 
 app = FastAPI(title="Physics-Aware EV Route Engine", version="2.0")
 
@@ -73,6 +75,15 @@ def get_vehicles():
         }
         for k, v in EV_MODELS.items()
     ]
+
+
+@app.get("/api/chargers")
+async def get_chargers(lat: float = 13.3409, lon: float = 74.7858, distance_km: float = 25.0):
+    """
+    Returns nearby EV charging stations using Open Charge Map API or corridor stations.
+    """
+    chargers = await fetch_ocm_chargers(lat=lat, lon=lon, distance_km=distance_km)
+    return chargers
 
 
 @app.post("/api/route/evaluate", response_model=RoutePhysicsSummary)

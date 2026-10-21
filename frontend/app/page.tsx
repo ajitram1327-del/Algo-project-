@@ -6,8 +6,10 @@ import {
   fetchVehicles,
   evaluateRoutePhysics,
   fetchDriverBriefing,
+  fetchOcmChargers,
   Vehicle,
   RouteSummary,
+  OcmCharger,
 } from '../lib/api';
 import {
   ResponsiveContainer,
@@ -31,6 +33,7 @@ export default function RouteDashboard() {
   const [passengers, setPassengers] = useState<number>(2);
   const [tempC, setTempC] = useState<number>(34);
   const [initialSoc, setInitialSoc] = useState<number>(25);
+  const [chargers, setChargers] = useState<OcmCharger[]>([]);
 
   const [summary, setSummary] = useState<RouteSummary | null>(null);
   const [briefing, setBriefing] = useState<string>('');
@@ -44,6 +47,10 @@ export default function RouteDashboard() {
         if (data.length > 0) setSelectedVehicle(data[1].id);
       })
       .catch((err) => console.error('Failed to load vehicles', err));
+
+    fetchOcmChargers()
+      .then((data) => setChargers(data))
+      .catch((err) => console.error('Failed to load OCM chargers', err));
   }, []);
 
   const handleCalculate = async () => {
@@ -232,7 +239,7 @@ export default function RouteDashboard() {
       {/* RIGHT: Map & Dual-Axis Telemetry Curve */}
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950">
         <div className="flex-1 w-full relative">
-          <MapComponent />
+          <MapComponent availableStations={chargers} />
         </div>
 
         {/* Elevation vs SoC Dual Area Chart */}
