@@ -50,9 +50,10 @@ def decode_valhalla_polyline(encoded: str, precision: float = 1e6) -> List[List[
 async def check_valhalla_status() -> Dict[str, Any]:
     """
     Check if the local Valhalla container is up and responsive.
+    Fast timeout so we never block when container is compiling.
     """
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=0.8) as client:
             res = await client.get(f"{VALHALLA_URL}/status")
             if res.status_code == 200:
                 return {"available": True, "data": res.json()}
@@ -68,11 +69,15 @@ async def get_elevation_profile(coordinates: List[List[float]]) -> List[float]:
     if not coordinates:
         return []
 
+    status = await check_valhalla_status()
+    if not status.get("available"):
+        return [0.0] * len(coordinates)
+
     # Valhalla expects [{"lat": ..., "lon": ...}, ...]
     shape = [{"lat": round(p[0], 6), "lon": round(p[1], 6)} for p in coordinates]
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:
             res = await client.post(
                 f"{VALHALLA_URL}/height",
                 json={"shape": shape, "range": False},
@@ -80,7 +85,6 @@ async def get_elevation_profile(coordinates: List[List[float]]) -> List[float]:
             if res.status_code == 200:
                 data = res.json()
                 heights = data.get("heights", [])
-                # If Valhalla returns None for nodata/water, replace with 0.0
                 return [float(h if h is not None else 0.0) for h in heights]
     except Exception as err:
         print(f"[Valhalla /height warning] {err}")
@@ -99,6 +103,11 @@ async def get_valhalla_route_3d(
     Requests a route from Valhalla and pairs each point with its 3D elevation profile:
     Returns [[lat, lon, elevation_m], ...] ready for UniversalEVPhysicsEngine.
     """
+    # Fast check: skip immediately if Valhalla is compiling
+    status = await check_valhalla_status()
+    if not status.get("available"):
+        return None
+
     payload = {
         "locations": [
             {"lat": origin_lat, "lon": origin_lon},
@@ -109,7 +118,7 @@ async def get_valhalla_route_3d(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=4.0) as client:
             res = await client.post(f"{VALHALLA_URL}/route", json=payload)
             if res.status_code != 200:
                 return None

@@ -207,7 +207,10 @@ async def evaluate_route(req: RouteRequest):
         # Discover chargers along the corridor for intelligent recharge planning
         ref_lat = req.origin_lat or coords[0][0]
         ref_lon = req.origin_lon or coords[0][1]
-        chargers = await fetch_ocm_chargers(lat=ref_lat, lon=ref_lon, distance_km=50.0)
+        try:
+            chargers = await fetch_ocm_chargers(lat=ref_lat, lon=ref_lon, distance_km=50.0)
+        except Exception:
+            chargers = []
 
         summary = engine.evaluate_route(
             coordinates_3d=coords,
