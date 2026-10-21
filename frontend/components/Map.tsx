@@ -6,14 +6,24 @@ import L from "leaflet";
 import { ChargingStop } from "@/lib/api";
 
 interface MapProps {
-  coordinates: [number, number][]; // GeoJSON format: [longitude, latitude]
-  chargingStops: ChargingStop[];
-  availableStations?: ChargingStop[];
+  coordinates?: [number, number][]; // GeoJSON format: [longitude, latitude]
+  chargingStops?: any[];
+  availableStations?: any[];
   originName?: string;
   destinationName?: string;
   originCoords?: [number, number]; // [lng, lat]
   destinationCoords?: [number, number]; // [lng, lat]
 }
+
+const DEFAULT_CORRIDOR_COORDS: [number, number][] = [
+  [74.7865, 13.3525],
+  [74.7780, 13.3510],
+  [74.7650, 13.3480],
+  [74.7500, 13.3440],
+  [74.7320, 13.3460],
+  [74.7150, 13.3490],
+  [74.7003, 13.3540],
+];
 
 // Controller to smoothly fit map bounds to route geometry
 function MapBoundsController({ positions }: { positions: [number, number][] }) {
@@ -33,7 +43,7 @@ function MapBoundsController({ positions }: { positions: [number, number][] }) {
 }
 
 export default function RouteMap({
-  coordinates = [],
+  coordinates,
   chargingStops = [],
   availableStations = [],
   originName = "Manipal",
@@ -41,13 +51,16 @@ export default function RouteMap({
   originCoords,
   destinationCoords,
 }: MapProps) {
+  const activeCoordinates = useMemo(() => {
+    return (coordinates && coordinates.length >= 2) ? coordinates : DEFAULT_CORRIDOR_COORDS;
+  }, [coordinates]);
+
   // Convert GeoJSON [lng, lat] coordinates to Leaflet [lat, lng] positions
   const polylinePositions = useMemo<[number, number][]>(() => {
-    if (!Array.isArray(coordinates) || coordinates.length === 0) return [];
-    return coordinates
+    return activeCoordinates
       .filter((pt) => Array.isArray(pt) && pt.length >= 2 && !isNaN(pt[0]) && !isNaN(pt[1]))
       .map(([lng, lat]) => [lat, lng] as [number, number]);
-  }, [coordinates]);
+  }, [activeCoordinates]);
 
   // Fallback center near Manipal if no coordinates provided
   const centerPosition: [number, number] =
