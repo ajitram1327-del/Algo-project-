@@ -24,8 +24,18 @@ import {
 } from 'recharts';
 import { Zap, AlertTriangle, BatteryCharging, Wind, Thermometer, Users } from 'lucide-react';
 
-// Dynamic Leaflet Map Import (no SSR)
-const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
+// Dynamic Leaflet Map Import (no SSR) with fallback placeholder
+const MapComponent = dynamic(() => import('../components/Map'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full min-h-[460px] rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 font-mono text-xs">
+      <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+        Initializing Interactive Corridor Map...
+      </div>
+    </div>
+  ),
+});
 
 export default function RouteDashboard() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);

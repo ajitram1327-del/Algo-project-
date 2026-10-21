@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   valhalla:
     image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
@@ -10,6 +8,5 @@ services:
       - ./custom_files:/custom_files
     environment:
       - build_elevation=True
-      - tile_urls=https://download.geofabrik.de/asia/india/southern-zone-latest.osm.pbf
       - server_threads=2
     restart: unless-stopped
