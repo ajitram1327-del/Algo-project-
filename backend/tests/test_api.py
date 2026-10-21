@@ -97,3 +97,20 @@ def test_driver_briefing_endpoint():
     data = res.json()
     assert "briefing" in data
     assert len(data["briefing"]) > 10
+
+
+def test_valhalla_status_and_polyline():
+    from backend.services.valhalla import decode_valhalla_polyline
+
+    # Test status endpoint returns graceful response even when container is stopped
+    res = client.get("/api/valhalla/status")
+    assert res.status_code == 200
+    assert "available" in res.json()
+
+    # Test polyline decoder
+    # Simple encoded shape for ~ (38.5, -120.2)
+    coords = decode_valhalla_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@", precision=1e5)
+    assert len(coords) >= 2
+    assert isinstance(coords[0][0], float)
+    assert isinstance(coords[0][1], float)
+

@@ -14,10 +14,12 @@ try:
     from backend.app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from backend.services.ai_agent import generate_driver_briefing
     from backend.services.openchargemap import fetch_ocm_chargers
+    from backend.services.valhalla import check_valhalla_status, get_valhalla_route_3d
 except ImportError:
     from app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from services.ai_agent import generate_driver_briefing
     from services.openchargemap import fetch_ocm_chargers
+    from services.valhalla import check_valhalla_status, get_valhalla_route_3d
 
 app = FastAPI(title="Physics-Aware EV Route Engine", version="2.0")
 
@@ -49,6 +51,11 @@ class RouteRequest(BaseModel):
     initial_soc_percent: float = 25.0
     coordinates: Optional[List[List[float]]] = None
     coord_order: str = "lat_lon_ele"
+    use_valhalla: bool = False
+    origin_lat: Optional[float] = None
+    origin_lon: Optional[float] = None
+    dest_lat: Optional[float] = None
+    dest_lon: Optional[float] = None
 
 
 class BriefingRequest(BaseModel):
@@ -86,9 +93,30 @@ async def get_chargers(lat: float = 13.3409, lon: float = 74.7858, distance_km: 
     return chargers
 
 
+@app.get("/api/valhalla/status")
+async def get_valhalla_status():
+    """
+    Checks health and readiness of the self-hosted Valhalla container.
+    """
+    return await check_valhalla_status()
+
+
 @app.post("/api/route/evaluate", response_model=RoutePhysicsSummary)
-def evaluate_route(req: RouteRequest):
-    coords = req.coordinates if req.coordinates and len(req.coordinates) >= 2 else SAMPLE_ROUTE_COORDINATES
+async def evaluate_route(req: RouteRequest):
+    coords = req.coordinates
+    if req.use_valhalla and req.origin_lat and req.origin_lon and req.dest_lat and req.dest_lon:
+        valhalla_coords = await get_valhalla_route_3d(
+            origin_lat=req.origin_lat,
+            origin_lon=req.origin_lon,
+            dest_lat=req.dest_lat,
+            dest_lon=req.dest_lon,
+        )
+        if valhalla_coords and len(valhalla_coords) >= 2:
+            coords = valhalla_coords
+
+    if not coords or len(coords) < 2:
+        coords = SAMPLE_ROUTE_COORDINATES
+
     try:
         engine = UniversalEVPhysicsEngine(
             vehicle_model_id=req.vehicle_model,
