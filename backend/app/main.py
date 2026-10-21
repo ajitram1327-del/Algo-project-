@@ -19,12 +19,14 @@ try:
     from backend.services.openchargemap import fetch_ocm_chargers
     from backend.services.valhalla import check_valhalla_status, get_valhalla_route_3d
     from backend.services.overpass import find_nearby_chargers
+    from backend.services.geocoding import search_locations, get_osrm_route
 except ImportError:
     from app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from services.ai_agent import generate_driver_briefing
     from services.openchargemap import fetch_ocm_chargers
     from services.valhalla import check_valhalla_status, get_valhalla_route_3d
     from services.overpass import find_nearby_chargers
+    from services.geocoding import search_locations, get_osrm_route
 
 app = FastAPI(title="Physics-Aware EV Route Engine", version="2.0")
 
@@ -159,10 +161,20 @@ async def get_valhalla_status():
     return await check_valhalla_status()
 
 
+@app.get("/api/geocode")
+async def geocode_query(q: str):
+    """
+    Search places, cities, and landmarks via OpenStreetMap Nominatim.
+    """
+    results = await search_locations(query=q)
+    return results
+
+
 @app.post("/api/route/evaluate", response_model=RoutePhysicsSummary)
 async def evaluate_route(req: RouteRequest):
     coords = req.coordinates
-    if req.use_valhalla and req.origin_lat and req.origin_lon and req.dest_lat and req.dest_lon:
+    if req.origin_lat and req.origin_lon and req.dest_lat and req.dest_lon:
+        # First attempt high-resolution 3D routing from local Valhalla
         valhalla_coords = await get_valhalla_route_3d(
             origin_lat=req.origin_lat,
             origin_lon=req.origin_lon,
@@ -171,6 +183,16 @@ async def evaluate_route(req: RouteRequest):
         )
         if valhalla_coords and len(valhalla_coords) >= 2:
             coords = valhalla_coords
+        else:
+            # Fall back to live OSRM routing
+            osrm_coords = await get_osrm_route(
+                origin_lat=req.origin_lat,
+                origin_lon=req.origin_lon,
+                dest_lat=req.dest_lat,
+                dest_lon=req.dest_lon,
+            )
+            if osrm_coords and len(osrm_coords) >= 2:
+                coords = osrm_coords
 
     if not coords or len(coords) < 2:
         coords = SAMPLE_ROUTE_COORDINATES

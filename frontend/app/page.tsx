@@ -1,15 +1,17 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import {
   fetchVehicles,
   evaluateRoutePhysics,
   fetchDriverBriefing,
   fetchOcmChargers,
+  searchLocations,
   Vehicle,
   RouteSummary,
   OcmCharger,
+  GeocodeLocation,
 } from '../lib/api';
 import {
   ResponsiveContainer,
@@ -22,7 +24,19 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
-import { Zap, AlertTriangle, BatteryCharging, Wind, Thermometer, Users } from 'lucide-react';
+import {
+  Zap,
+  AlertTriangle,
+  BatteryCharging,
+  Wind,
+  Thermometer,
+  Users,
+  MapPin,
+  Navigation,
+  Search,
+  ArrowUpDown,
+  Loader2,
+} from 'lucide-react';
 
 // Dynamic Leaflet Map Import (no SSR) with fallback placeholder
 const MapComponent = dynamic(() => import('../components/Map'), {
@@ -45,10 +59,30 @@ export default function RouteDashboard() {
   const [initialSoc, setInitialSoc] = useState<number>(25);
   const [chargers, setChargers] = useState<OcmCharger[]>([]);
 
+  // Location Search State
+  const [originName, setOriginName] = useState<string>('Manipal (Syndicate Circle)');
+  const [destinationName, setDestinationName] = useState<string>('Malpe Beach (Sea Walk)');
+  const [originCoords, setOriginCoords] = useState<[number, number]>([74.7865, 13.3525]); // [lng, lat]
+  const [destCoords, setDestCoords] = useState<[number, number]>([74.7003, 13.3540]);     // [lng, lat]
+  const [activeRouteCoords, setActiveRouteCoords] = useState<[number, number][] | undefined>(undefined);
+
+  // Autocomplete UI State
+  const [originSearch, setOriginSearch] = useState<string>('Manipal');
+  const [destSearch, setDestSearch] = useState<string>('Malpe Beach');
+  const [originSuggestions, setOriginSuggestions] = useState<GeocodeLocation[]>([]);
+  const [destSuggestions, setDestSuggestions] = useState<GeocodeLocation[]>([]);
+  const [originLoading, setOriginLoading] = useState<boolean>(false);
+  const [destLoading, setDestLoading] = useState<boolean>(false);
+  const [showOriginDropdown, setShowOriginDropdown] = useState<boolean>(false);
+  const [showDestDropdown, setShowDestDropdown] = useState<boolean>(false);
+
   const [summary, setSummary] = useState<RouteSummary | null>(null);
   const [briefing, setBriefing] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [briefingLoading, setBriefingLoading] = useState<boolean>(false);
+
+  const originTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const destTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     fetchVehicles()
@@ -58,10 +92,83 @@ export default function RouteDashboard() {
       })
       .catch((err) => console.error('Failed to load vehicles', err));
 
-    fetchOcmChargers()
+    fetchOcmChargers(13.3525, 74.7865, 25)
       .then((data) => setChargers(data))
       .catch((err) => console.error('Failed to load OCM chargers', err));
   }, []);
+
+  // Debounced search for Origin
+  const handleOriginChange = (text: string) => {
+    setOriginSearch(text);
+    if (originTimeoutRef.current) clearTimeout(originTimeoutRef.current);
+    if (text.trim().length < 2) {
+      setOriginSuggestions([]);
+      setShowOriginDropdown(false);
+      return;
+    }
+    setOriginLoading(true);
+    originTimeoutRef.current = setTimeout(async () => {
+      const results = await searchLocations(text);
+      setOriginSuggestions(results);
+      setShowOriginDropdown(true);
+      setOriginLoading(false);
+    }, 350);
+  };
+
+  // Debounced search for Destination
+  const handleDestChange = (text: string) => {
+    setDestSearch(text);
+    if (destTimeoutRef.current) clearTimeout(destTimeoutRef.current);
+    if (text.trim().length < 2) {
+      setDestSuggestions([]);
+      setShowDestDropdown(false);
+      return;
+    }
+    setDestLoading(true);
+    destTimeoutRef.current = setTimeout(async () => {
+      const results = await searchLocations(text);
+      setDestSuggestions(results);
+      setShowDestDropdown(true);
+      setDestLoading(false);
+    }, 350);
+  };
+
+  const selectOrigin = (loc: GeocodeLocation) => {
+    setOriginName(loc.name);
+    setOriginSearch(loc.name);
+    setOriginCoords([loc.lon, loc.lat]);
+    setShowOriginDropdown(false);
+    // Reload nearby chargers for the new origin
+    fetchOcmChargers(loc.lat, loc.lon, 25)
+      .then((data) => setChargers(data))
+      .catch((err) => console.error('Failed to refresh chargers', err));
+  };
+
+  const selectDest = (loc: GeocodeLocation) => {
+    setDestinationName(loc.name);
+    setDestSearch(loc.name);
+    setDestCoords([loc.lon, loc.lat]);
+    setShowDestDropdown(false);
+  };
+
+  const swapLocations = () => {
+    const tmpName = originName;
+    const tmpSearch = originSearch;
+    const tmpCoords = originCoords;
+
+    setOriginName(destinationName);
+    setOriginSearch(destSearch);
+    setOriginCoords(destCoords);
+
+    setDestinationName(tmpName);
+    setDestSearch(tmpSearch);
+    setDestCoords(tmpCoords);
+
+    // Refresh chargers for new origin
+    fetchOcmChargers(destCoords[1], destCoords[0], 25)
+      .then((data) => setChargers(data))
+      .catch((err) => console.error('Failed to refresh chargers', err));
+  };
 
   const handleCalculate = async () => {
     setLoading(true);
@@ -72,8 +179,16 @@ export default function RouteDashboard() {
         passengers,
         ambient_temp_c: tempC,
         initial_soc_percent: initialSoc,
+        origin_lat: originCoords[1],
+        origin_lon: originCoords[0],
+        dest_lat: destCoords[1],
+        dest_lon: destCoords[0],
       });
       setSummary(result);
+
+      if (result.route_coordinates && result.route_coordinates.length >= 2) {
+        setActiveRouteCoords(result.route_coordinates);
+      }
 
       // Async fetch AI briefing decoupled from route generation
       setBriefingLoading(true);
@@ -96,19 +211,101 @@ export default function RouteDashboard() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans">
       {/* LEFT: Controls & Analytics Sidebar */}
-      <aside className="w-[420px] h-full flex flex-col border-r border-slate-800 bg-slate-900/80 p-5 overflow-y-auto space-y-5">
+      <aside className="w-[440px] h-full flex flex-col border-r border-slate-800 bg-slate-900/90 p-5 overflow-y-auto space-y-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-emerald-400 flex items-center gap-2">
             <Zap className="h-5 w-5 text-emerald-400" />
             EV Physics Route Planner
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Dynamic Gradient & Battery Telemetry Engine
+          <p className="text-xs text-slate-400 mt-0.5">
+            Real-Time 3D Elevation & Dynamic Battery Telemetry
           </p>
         </div>
 
-        {/* Inputs */}
-        <div className="space-y-4 bg-slate-800/40 p-4 rounded-xl border border-slate-800">
+        {/* Location Search Box */}
+        <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/70 space-y-2.5">
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <span className="flex items-center gap-1.5 text-sky-400">
+              <Navigation className="h-3.5 w-3.5" /> Route Navigation
+            </span>
+            <button
+              onClick={swapLocations}
+              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-emerald-400 transition"
+              title="Swap origin and destination"
+            >
+              <ArrowUpDown className="h-3 w-3" /> Swap
+            </button>
+          </div>
+
+          {/* Origin Input */}
+          <div className="relative">
+            <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-700 rounded-lg px-2.5 py-1.5 focus-within:border-emerald-500 transition">
+              <MapPin className="h-4 w-4 text-emerald-400 shrink-0" />
+              <input
+                type="text"
+                value={originSearch}
+                onChange={(e) => handleOriginChange(e.target.value)}
+                onFocus={() => originSuggestions.length > 0 && setShowOriginDropdown(true)}
+                placeholder="Search Origin (e.g., Manipal)"
+                className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+              />
+              {originLoading && <Loader2 className="h-3.5 w-3.5 text-emerald-400 animate-spin shrink-0" />}
+            </div>
+
+            {/* Origin Suggestions Dropdown */}
+            {showOriginDropdown && originSuggestions.length > 0 && (
+              <div className="absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-48 overflow-y-auto">
+                {originSuggestions.map((loc, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => selectOrigin(loc)}
+                    className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-emerald-600/20 border-b border-slate-800/60 last:border-0 transition"
+                  >
+                    <div className="font-semibold text-emerald-400">{loc.name}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{loc.display_name}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Destination Input */}
+          <div className="relative">
+            <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-700 rounded-lg px-2.5 py-1.5 focus-within:border-blue-500 transition">
+              <MapPin className="h-4 w-4 text-blue-400 shrink-0" />
+              <input
+                type="text"
+                value={destSearch}
+                onChange={(e) => handleDestChange(e.target.value)}
+                onFocus={() => destSuggestions.length > 0 && setShowDestDropdown(true)}
+                placeholder="Search Destination (e.g., Malpe Beach)"
+                className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+              />
+              {destLoading && <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin shrink-0" />}
+            </div>
+
+            {/* Destination Suggestions Dropdown */}
+            {showDestDropdown && destSuggestions.length > 0 && (
+              <div className="absolute z-50 left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-48 overflow-y-auto">
+                {destSuggestions.map((loc, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => selectDest(loc)}
+                    className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-blue-600/20 border-b border-slate-800/60 last:border-0 transition"
+                  >
+                    <div className="font-semibold text-blue-400">{loc.name}</div>
+                    <div className="text-[10px] text-slate-400 truncate">{loc.display_name}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Vehicle & Environmental Inputs */}
+        <div className="space-y-3.5 bg-slate-800/40 p-4 rounded-xl border border-slate-800">
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Vehicle Model
@@ -163,7 +360,7 @@ export default function RouteDashboard() {
           <div>
             <div className="flex justify-between text-xs text-slate-300">
               <span className="flex items-center gap-1">
-                <BatteryCharging className="h-3 w-3" /> Starting SoC
+                <BatteryCharging className="h-3 w-3" /> Starting Battery SoC
               </span>
               <span className="font-semibold text-emerald-400">{initialSoc}%</span>
             </div>
@@ -180,7 +377,7 @@ export default function RouteDashboard() {
           <button
             onClick={handleCalculate}
             disabled={loading}
-            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-sm transition duration-150 disabled:opacity-50"
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-sm transition duration-150 disabled:opacity-50 shadow-lg shadow-emerald-950/40"
           >
             {loading ? 'Evaluating Forces...' : 'Simulate Route Physics'}
           </button>
@@ -189,34 +386,50 @@ export default function RouteDashboard() {
         {/* Telemetry KPI Cards */}
         {summary && (
           <div className="space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Telemetry & Physics Output
+            </h2>
+
             <div className="grid grid-cols-2 gap-2">
-              <div className="bg-slate-800/60 p-3 rounded-lg border border-slate-700/60">
-                <div className="text-[11px] text-slate-400">Net Energy</div>
-                <div className="text-lg font-bold text-white">
-                  {summary.net_energy_kwh} <span className="text-xs font-normal">kWh</span>
-                </div>
+              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
+                <span className="text-[11px] text-slate-400 block">Total Distance</span>
+                <span className="text-base font-bold text-slate-100">
+                  {summary.total_distance_km} km
+                </span>
               </div>
-              <div className="bg-slate-800/60 p-3 rounded-lg border border-slate-700/60">
-                <div className="text-[11px] text-slate-400">Final SoC</div>
-                <div
-                  className={`text-lg font-bold ${
+              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
+                <span className="text-[11px] text-slate-400 block">Net Energy</span>
+                <span className="text-base font-bold text-emerald-400">
+                  {summary.net_energy_kwh} kWh
+                </span>
+              </div>
+              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
+                <span className="text-[11px] text-slate-400 block">Final Battery SoC</span>
+                <span
+                  className={`text-base font-bold ${
                     summary.reserve_breached ? 'text-rose-400' : 'text-emerald-400'
                   }`}
                 >
                   {summary.final_soc_percent}%
-                </div>
+                </span>
               </div>
-              <div className="bg-slate-800/60 p-3 rounded-lg border border-slate-700/60">
-                <div className="text-[11px] text-slate-400">Elevation Δ</div>
-                <div className="text-sm font-semibold text-slate-200">
-                  +{summary.total_climb_m}m / -{summary.total_descent_m}m
-                </div>
-              </div>
-              <div className="bg-slate-800/60 p-3 rounded-lg border border-slate-700/60">
-                <div className="text-[11px] text-slate-400">Max Gradient</div>
-                <div className="text-sm font-semibold text-amber-300">
+              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
+                <span className="text-[11px] text-slate-400 block">Max Gradient</span>
+                <span className="text-base font-bold text-amber-400">
                   {summary.max_gradient_percent}%
-                </div>
+                </span>
+              </div>
+              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
+                <span className="text-[11px] text-slate-400 block">Climb / Descent</span>
+                <span className="text-xs font-bold text-slate-200">
+                  +{summary.total_climb_m}m / -{summary.total_descent_m}m
+                </span>
+              </div>
+              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
+                <span className="text-[11px] text-slate-400 block">Energy Regenerated</span>
+                <span className="text-base font-bold text-cyan-400">
+                  {summary.gross_regenerated_kwh} kWh
+                </span>
               </div>
             </div>
 
@@ -224,7 +437,7 @@ export default function RouteDashboard() {
               <div className="p-3 bg-rose-950/60 border border-rose-700/50 rounded-lg text-xs text-rose-200 flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
                 <span>
-                  Reserve breached! Battery fell below 10% safety margin. Charging required at Udupi.
+                  Reserve breached! Battery fell below 10% safety margin. Please recharge at nearest stop.
                 </span>
               </div>
             )}
@@ -249,7 +462,14 @@ export default function RouteDashboard() {
       {/* RIGHT: Map & Dual-Axis Telemetry Curve */}
       <main className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950">
         <div className="flex-1 w-full relative">
-          <MapComponent availableStations={chargers} />
+          <MapComponent
+            availableStations={chargers}
+            coordinates={activeRouteCoords}
+            originName={originName}
+            destinationName={destinationName}
+            originCoords={originCoords}
+            destinationCoords={destCoords}
+          />
         </div>
 
         {/* Elevation vs SoC Dual Area Chart */}
@@ -261,52 +481,59 @@ export default function RouteDashboard() {
             </div>
             <div className="flex-1 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={summary.telemetry_profile}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                <ComposedChart
+                  data={summary.telemetry_profile}
+                  margin={{ top: 10, right: 20, bottom: 5, left: -10 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.6} />
                   <XAxis
                     dataKey="distance_km"
-                    unit="km"
                     stroke="#94a3b8"
-                    tick={{ fontSize: 11 }}
+                    tick={{ fontSize: 10 }}
+                    unit=" km"
                   />
+                  {/* Left Y Axis: Elevation */}
                   <YAxis
                     yAxisId="left"
                     stroke="#38bdf8"
+                    tick={{ fontSize: 10 }}
                     unit="m"
-                    tick={{ fontSize: 11 }}
                     domain={['auto', 'auto']}
                   />
+                  {/* Right Y Axis: Battery SoC */}
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    stroke="#10b981"
+                    stroke="#34d399"
+                    tick={{ fontSize: 10 }}
                     unit="%"
-                    tick={{ fontSize: 11 }}
                     domain={[0, 100]}
                   />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#0f172a',
                       borderColor: '#334155',
+                      borderRadius: '8px',
                       fontSize: '12px',
                     }}
                   />
-                  <Legend wrapperStyle={{ fontSize: '11px' }} />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }} />
                   <Area
                     yAxisId="left"
                     type="monotone"
                     dataKey="elevation_m"
-                    name="Elevation"
+                    name="Elevation (m)"
                     fill="#0284c7"
+                    fillOpacity={0.25}
                     stroke="#38bdf8"
-                    fillOpacity={0.2}
+                    strokeWidth={2}
                   />
                   <Line
                     yAxisId="right"
                     type="monotone"
                     dataKey="soc_percent"
-                    name="Battery SoC"
-                    stroke="#10b981"
+                    name="Battery SoC (%)"
+                    stroke="#34d399"
                     strokeWidth={2.5}
                     dot={false}
                   />

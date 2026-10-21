@@ -84,6 +84,7 @@ class RoutePhysicsSummary(BaseModel):
     final_soc_percent: float
     reserve_breached: bool
     telemetry_profile: List[SegmentTelemetry]
+    route_coordinates: Optional[List[List[float]]] = None
 
 
 class UniversalEVPhysicsEngine:
@@ -264,4 +265,5 @@ class UniversalEVPhysicsEngine:
             final_soc_percent=round(final_soc, 1),
             reserve_breached=current_soc_kwh < reserve_kwh,
             telemetry_profile=telemetry,
+            route_coordinates=[[p["lon"], p["lat"]] for p in raw_points],
         )

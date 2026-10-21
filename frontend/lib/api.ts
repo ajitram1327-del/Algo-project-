@@ -45,6 +45,7 @@ export interface RouteSummary {
   final_soc_percent: number;
   reserve_breached: boolean;
   telemetry_profile: TelemetryPoint[];
+  route_coordinates?: [number, number][];
 }
 
 export const fetchVehicles = async (): Promise<Vehicle[]> => {
@@ -72,11 +73,32 @@ export const fetchOcmChargers = async (
   return res.data;
 };
 
+export interface GeocodeLocation {
+  name: string;
+  display_name: string;
+  lat: number;
+  lon: number;
+  type: string;
+}
+
+export const searchLocations = async (query: string): Promise<GeocodeLocation[]> => {
+  if (!query || query.trim().length < 2) return [];
+  const res = await axios.get(`${API_BASE}/api/geocode`, {
+    params: { q: query.trim() },
+  });
+  return res.data;
+};
+
 export const evaluateRoutePhysics = async (payload: {
   vehicle_model: string;
   passengers: number;
   ambient_temp_c: number;
   initial_soc_percent: number;
+  origin_lat?: number;
+  origin_lon?: number;
+  dest_lat?: number;
+  dest_lon?: number;
+  coordinates?: number[][];
 }): Promise<RouteSummary> => {
   const res = await axios.post(`${API_BASE}/api/route/evaluate`, payload);
   return res.data;
