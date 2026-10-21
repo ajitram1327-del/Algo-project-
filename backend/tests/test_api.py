@@ -62,7 +62,7 @@ def test_route_evaluate_physics():
 
 
 def test_route_reserve_breach_detection():
-    # Very low initial SoC (5%) should trigger reserve_breached
+    # Very low initial SoC (8%) should trigger dynamic charging stop planning
     payload = {
         "vehicle_model": "tata_tiago_ev",
         "passengers": 4,
@@ -73,7 +73,9 @@ def test_route_reserve_breach_detection():
     res = client.post("/api/route/evaluate", json=payload)
     assert res.status_code == 200
     data = res.json()
-    assert data["reserve_breached"] is True
+    assert len(data["charging_stops"]) >= 1
+    assert data["charging_stops"][0]["target_soc_percent"] >= 80.0
+    assert data["total_charging_time_minutes"] > 0
 
 
 def test_driver_briefing_endpoint():

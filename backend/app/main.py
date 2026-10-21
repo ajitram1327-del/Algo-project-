@@ -203,10 +203,17 @@ async def evaluate_route(req: RouteRequest):
             passengers=req.passengers,
             ambient_temp_c=req.ambient_temp_c,
         )
+        
+        # Discover chargers along the corridor for intelligent recharge planning
+        ref_lat = req.origin_lat or coords[0][0]
+        ref_lon = req.origin_lon or coords[0][1]
+        chargers = await fetch_ocm_chargers(lat=ref_lat, lon=ref_lon, distance_km=50.0)
+
         summary = engine.evaluate_route(
             coordinates_3d=coords,
             coord_order=req.coord_order,
             initial_soc_percent=req.initial_soc_percent,
+            available_chargers=chargers,
         )
         return summary
     except Exception as e:

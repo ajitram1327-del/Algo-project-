@@ -34,6 +34,19 @@ export interface TelemetryPoint {
   cumulative_energy_kwh: number;
 }
 
+export interface ChargingPlanStop {
+  station_id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  power_kw: number;
+  arrival_distance_km: number;
+  arrival_soc_percent: number;
+  target_soc_percent: number;
+  energy_added_kwh: number;
+  charging_time_minutes: number;
+}
+
 export interface RouteSummary {
   total_distance_km: number;
   total_climb_m: number;
@@ -44,6 +57,10 @@ export interface RouteSummary {
   net_energy_kwh: number;
   final_soc_percent: number;
   reserve_breached: boolean;
+  is_unreachable?: boolean;
+  total_charging_time_minutes?: number;
+  total_energy_charged_kwh?: number;
+  charging_stops?: ChargingPlanStop[];
   telemetry_profile: TelemetryPoint[];
   route_coordinates?: [number, number][];
 }

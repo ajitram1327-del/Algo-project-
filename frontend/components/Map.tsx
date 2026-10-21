@@ -140,7 +140,19 @@ export default function RouteMap({
 
     // Overlay any recommended stops (with active arrival SoC telemetry)
     for (const st of chargingStops) {
-      map.set(st.id, { station: st, isRecommended: true });
+      const id = st.id || st.station_id || `stop-${Math.random()}`;
+      map.set(id, {
+        station: {
+          ...st,
+          id,
+          lat: st.lat !== undefined ? st.lat : (st.coordinates ? st.coordinates[1] : undefined),
+          lon: st.lon !== undefined ? st.lon : (st.coordinates ? st.coordinates[0] : undefined),
+          arrival_soc: st.arrival_soc_percent ?? st.arrival_soc,
+          departure_soc: st.target_soc_percent ?? st.departure_soc,
+          charge_time_min: st.charging_time_minutes ?? st.charge_time_min,
+        },
+        isRecommended: true,
+      });
     }
 
     return Array.from(map.values());

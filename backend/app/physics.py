@@ -5,7 +5,7 @@ rolling resistance, thermal HVAC loads, and motor regen limits.
 """
 
 import math
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pydantic import BaseModel
 
 
@@ -71,6 +71,21 @@ class SegmentTelemetry(BaseModel):
     soc_percent: float
     is_regenerating: bool
     cumulative_energy_kwh: float
+    is_charging_stop: bool = False
+    charging_station_name: Optional[str] = None
+
+
+class ChargingPlanStop(BaseModel):
+    station_id: str
+    name: str
+    lat: float
+    lon: float
+    power_kw: float
+    arrival_distance_km: float
+    arrival_soc_percent: float
+    target_soc_percent: float
+    energy_added_kwh: float
+    charging_time_minutes: float
 
 
 class RoutePhysicsSummary(BaseModel):
@@ -83,6 +98,10 @@ class RoutePhysicsSummary(BaseModel):
     net_energy_kwh: float
     final_soc_percent: float
     reserve_breached: bool
+    is_unreachable: bool = False
+    total_charging_time_minutes: float = 0.0
+    total_energy_charged_kwh: float = 0.0
+    charging_stops: List[ChargingPlanStop] = []
     telemetry_profile: List[SegmentTelemetry]
     route_coordinates: Optional[List[List[float]]] = None
 
@@ -138,7 +157,9 @@ class UniversalEVPhysicsEngine:
         coord_order: str = "lat_lon_ele",
         cruising_speed_kmh: float = 50.0,
         initial_soc_percent: float = 50.0,
-        reserve_threshold_percent: float = 10.0,
+        reserve_threshold_percent: float = 12.0,
+        target_charge_soc_percent: float = 80.0,
+        available_chargers: Optional[List[Dict[str, Any]]] = None,
     ) -> RoutePhysicsSummary:
         if len(coordinates_3d) < 2:
             raise ValueError("Route must contain at least 2 coordinate points.")
@@ -168,6 +189,11 @@ class UniversalEVPhysicsEngine:
         gross_regen = 0.0
         max_grad = 0.0
         telemetry: List[SegmentTelemetry] = []
+        charging_stops: List[ChargingPlanStop] = []
+        visited_station_ids = set()
+        total_charge_time_min = 0.0
+        total_energy_charged = 0.0
+        is_unreachable = False
 
         # Initial point telemetry
         telemetry.append(
@@ -234,9 +260,79 @@ class UniversalEVPhysicsEngine:
                 seg_energy_kwh = traction_kwh + aux_kwh
 
             current_soc_kwh -= seg_energy_kwh
-            current_soc_kwh = max(0.0, min(self.specs.battery_capacity_kwh, current_soc_kwh))
             total_dist_m += d_m
 
+            # Check if battery breaches the safety reserve margin (Plan a dynamic charging stop)
+            if current_soc_kwh <= reserve_kwh and i < (n - 2):
+                chosen_station = None
+                if available_chargers:
+                    unvisited = [c for c in available_chargers if c.get("id") not in visited_station_ids]
+                    if unvisited:
+                        def dist_to_station(st):
+                            slat = st.get("lat") or st.get("latitude")
+                            slon = st.get("lon") or st.get("longitude")
+                            if slat is None or slon is None:
+                                return float("inf")
+                            return self.haversine_m(p2["lat"], p2["lon"], float(slat), float(slon))
+
+                        sorted_chargers = sorted(unvisited, key=dist_to_station)
+                        best = sorted_chargers[0]
+                        if dist_to_station(best) <= 30000.0:
+                            chosen_station = best
+                            visited_station_ids.add(best.get("id"))
+
+                if not chosen_station:
+                    chosen_station = {
+                        "id": f"planned-fast-charger-{len(charging_stops) + 1}",
+                        "name": f"Planned Highway Fast Charger #{len(charging_stops) + 1}",
+                        "lat": p2["lat"],
+                        "lon": p2["lon"],
+                        "power_kw": 60.0,
+                    }
+
+                arrival_soc_pct = max(1.0, (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0)
+                target_soc_pct = max(target_charge_soc_percent, arrival_soc_pct + 15.0)
+                target_soc_kwh = (target_soc_pct / 100.0) * self.specs.battery_capacity_kwh
+                added_kwh = max(0.0, target_soc_kwh - current_soc_kwh)
+
+                charger_power = float(chosen_station.get("power_kw") or 50.0)
+                eff_kw = min(charger_power, self.specs.max_charge_power_kw)
+                charge_mins = (added_kwh / max(10.0, eff_kw)) * 60.0
+
+                stop_entry = ChargingPlanStop(
+                    station_id=str(chosen_station.get("id", f"stop-{len(charging_stops)+1}")),
+                    name=chosen_station.get("name", "Corridor EV Fast Charger"),
+                    lat=float(chosen_station.get("lat", p2["lat"])),
+                    lon=float(chosen_station.get("lon", p2["lon"])),
+                    power_kw=eff_kw,
+                    arrival_distance_km=round(total_dist_m / 1000.0, 2),
+                    arrival_soc_percent=round(arrival_soc_pct, 1),
+                    target_soc_percent=round(target_soc_pct, 1),
+                    energy_added_kwh=round(added_kwh, 2),
+                    charging_time_minutes=round(charge_mins, 1),
+                )
+                charging_stops.append(stop_entry)
+                total_charge_time_min += charge_mins
+                total_energy_charged += added_kwh
+
+                # Recharged to target SoC to continue the journey
+                current_soc_kwh = target_soc_kwh
+
+                telemetry.append(
+                    SegmentTelemetry(
+                        segment_idx=i + 1,
+                        distance_km=round(total_dist_m / 1000.0, 2),
+                        elevation_m=round(ele2, 1),
+                        gradient_percent=round(gradient_percent, 1),
+                        soc_percent=round(target_soc_pct, 1),
+                        is_regenerating=False,
+                        cumulative_energy_kwh=round(gross_consumed - gross_regen, 3),
+                        is_charging_stop=True,
+                        charging_station_name=stop_entry.name,
+                    )
+                )
+
+            current_soc_kwh = max(0.0, min(self.specs.battery_capacity_kwh, current_soc_kwh))
             current_soc_pct = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
 
             telemetry.append(
@@ -253,6 +349,11 @@ class UniversalEVPhysicsEngine:
 
         net_kwh = gross_consumed - gross_regen
         final_soc = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
+        
+        # If the trip was able to replenish via planned charging stops and reaches destination safely:
+        reserve_breached = final_soc < (reserve_threshold_percent * 0.8) and len(charging_stops) == 0
+        if final_soc <= 0.0 and len(charging_stops) == 0:
+            is_unreachable = True
 
         return RoutePhysicsSummary(
             total_distance_km=round(total_dist_m / 1000.0, 2),
@@ -263,7 +364,11 @@ class UniversalEVPhysicsEngine:
             gross_regenerated_kwh=round(gross_regen, 3),
             net_energy_kwh=round(net_kwh, 3),
             final_soc_percent=round(final_soc, 1),
-            reserve_breached=current_soc_kwh < reserve_kwh,
+            reserve_breached=reserve_breached,
+            is_unreachable=is_unreachable,
+            total_charging_time_minutes=round(total_charge_time_min, 1),
+            total_energy_charged_kwh=round(total_energy_charged, 2),
+            charging_stops=charging_stops,
             telemetry_profile=telemetry,
             route_coordinates=[[p["lon"], p["lat"]] for p in raw_points],
         )

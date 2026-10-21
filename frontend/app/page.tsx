@@ -433,7 +433,49 @@ export default function RouteDashboard() {
               </div>
             </div>
 
-            {summary.reserve_breached && (
+            {summary.charging_stops && summary.charging_stops.length > 0 && (
+              <div className="p-3.5 bg-amber-950/30 border border-amber-500/40 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                    <BatteryCharging className="h-4 w-4" /> Planned Charging Stops ({summary.charging_stops.length})
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    +{summary.total_energy_charged_kwh} kWh Added
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {summary.charging_stops.map((stop, idx) => (
+                    <div key={idx} className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/80 text-xs space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-slate-100 flex items-center gap-1 truncate max-w-[240px]">
+                          ⚡ {stop.name}
+                        </span>
+                        <span className="text-slate-400 text-[10px] font-mono shrink-0">km {stop.arrival_distance_km}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-300 text-[11px]">
+                        <span>Recharge: <span className="text-rose-400">{stop.arrival_soc_percent}%</span> → <span className="text-emerald-400 font-semibold">{stop.target_soc_percent}%</span></span>
+                        <span className="text-amber-300 font-semibold">~{stop.charging_time_minutes} mins</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 flex justify-between pt-0.5 border-t border-slate-800">
+                        <span>Speed: {stop.power_kw} kW Ultra-Fast</span>
+                        <span>Added: +{stop.energy_added_kwh} kWh</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {summary.is_unreachable && (
+              <div className="p-3 bg-rose-950/70 border border-rose-600 rounded-lg text-xs text-rose-200 flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
+                <span>
+                  Route exceeds vehicle range! No reachable charging stations were found along this corridor before 0% battery.
+                </span>
+              </div>
+            )}
+
+            {summary.reserve_breached && !summary.is_unreachable && (
               <div className="p-3 bg-rose-950/60 border border-rose-700/50 rounded-lg text-xs text-rose-200 flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
                 <span>
@@ -464,6 +506,7 @@ export default function RouteDashboard() {
         <div className="flex-1 w-full relative">
           <MapComponent
             availableStations={chargers}
+            chargingStops={summary?.charging_stops || []}
             coordinates={activeRouteCoords}
             originName={originName}
             destinationName={destinationName}
