@@ -128,3 +128,14 @@ def test_overpass_chargers_and_distance():
     assert isinstance(res.json(), list)
 
 
+def test_nearest_charger_endpoint():
+    res = client.get("/api/chargers/nearest?lat=13.3409&lon=74.7858&radius_km=15")
+    assert res.status_code == 200
+    data = res.json()
+    assert "origin" in data
+    assert "closest_station" in data
+    assert "all_stations" in data
+    assert data["origin"]["lat"] == 13.3409
+
+
+

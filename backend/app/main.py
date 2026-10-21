@@ -135,6 +135,19 @@ async def get_overpass_chargers(
     return await find_nearby_chargers(user_lat=lat, user_lon=lon, radius_meters=radius_meters)
 
 
+@app.get("/api/chargers/nearest")
+async def get_nearest_charger(lat: float, lon: float, radius_km: float = 25.0):
+    try:
+        chargers = await find_nearby_chargers(lat, lon, radius_meters=int(radius_km * 1000))
+        return {
+            "origin": {"lat": lat, "lon": lon},
+            "closest_station": chargers[0] if chargers else None,
+            "all_stations": chargers,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/valhalla/status")
 async def get_valhalla_status():
     """
