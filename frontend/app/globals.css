@@ -735,32 +735,7 @@ select {
   isolation: isolate;
   place-items: center;
   color: #f4fbff;
-  background:
-    radial-gradient(ellipse at 50% 48%, rgba(9, 37, 52, 0.55), transparent 50%),
-    radial-gradient(ellipse at 50% 100%, rgba(4, 42, 58, 0.22), transparent 55%),
-    #030609;
-}
-
-.us-hero::before {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  background:
-    linear-gradient(rgba(96, 195, 220, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96, 195, 220, 0.035) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 76%);
-}
-
-.us-hero::after {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  pointer-events: none;
-  content: "";
-  background: radial-gradient(ellipse at center, transparent 25%, rgba(0, 0, 0, 0.62) 100%);
+  background: #000000;
 }
 
 .us-hero__electricity {
@@ -770,28 +745,6 @@ select {
   width: 100%;
   height: 100%;
   pointer-events: none;
-}
-
-.us-hero__topline {
-  position: absolute;
-  z-index: 3;
-  top: clamp(22px, 4vw, 42px);
-  left: clamp(20px, 5vw, 64px);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: rgba(208, 228, 236, 0.62);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.17em;
-}
-
-.us-hero__status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #63e2ff;
-  box-shadow: 0 0 13px rgba(82, 222, 255, 0.9);
 }
 
 .us-hero__content {
@@ -805,20 +758,11 @@ select {
   animation: us-hero-arrive 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-.us-hero__eyebrow {
-  margin: 0 0 25px;
-  color: rgba(160, 220, 235, 0.72);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.22em;
-}
-
 .us-brand-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: clamp(10px, 1.5vw, 18px);
-  padding: 8px 4px;
+  padding: 12px 24px;
   border: 0;
   border-radius: 18px;
   color: #f4fbff;
@@ -841,32 +785,9 @@ select {
   outline-offset: 9px;
 }
 
-.us-brand-button__mark {
-  display: grid;
-  width: clamp(42px, 6vw, 62px);
-  height: clamp(42px, 6vw, 62px);
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(130, 220, 245, 0.45);
-  border-radius: 17px;
-  color: #f0faff;
-  background: linear-gradient(145deg, rgba(60, 160, 210, 0.16), rgba(10, 30, 45, 0.5));
-  box-shadow:
-    inset 0 0 12px rgba(80, 200, 240, 0.15),
-    0 0 18px rgba(40, 140, 200, 0.2);
-  transition: box-shadow 180ms ease, border-color 180ms ease;
-}
-
-.us-brand-button:hover .us-brand-button__mark {
-  border-color: rgba(180, 240, 255, 0.85);
-  box-shadow:
-    inset 0 0 16px rgba(100, 220, 255, 0.25),
-    0 0 24px rgba(60, 180, 240, 0.35);
-}
-
 .us-brand-button__name {
   position: relative;
-  font-size: clamp(3.1rem, 9.2vw, 7rem);
+  font-size: clamp(3.2rem, 9.5vw, 7.5rem);
   font-weight: 850;
   letter-spacing: -0.065em;
   line-height: 1;
@@ -926,53 +847,6 @@ select {
   }
 }
 
-.us-brand-button__arrow {
-  align-self: flex-start;
-  margin-top: 3px;
-  color: rgba(119, 220, 247, 0.72);
-  font-size: clamp(18px, 2.3vw, 28px);
-  transition: transform 180ms ease;
-}
-
-.us-brand-button:hover .us-brand-button__arrow {
-  transform: translate(3px, -3px);
-}
-
-.us-hero__tagline {
-  margin: 24px 0 0;
-  color: rgba(224, 239, 244, 0.82);
-  font-size: clamp(15px, 2vw, 19px);
-  letter-spacing: -0.025em;
-}
-
-.us-hero__hint {
-  margin: 42px 0 0;
-  color: rgba(163, 191, 201, 0.62);
-  font-size: 11px;
-  letter-spacing: 0.035em;
-}
-
-.us-hero__footer {
-  position: absolute;
-  z-index: 3;
-  right: clamp(20px, 5vw, 64px);
-  bottom: clamp(22px, 4vw, 42px);
-  left: clamp(20px, 5vw, 64px);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  color: rgba(172, 204, 214, 0.47);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-}
-
-.us-hero__footer-line {
-  width: 36px;
-  height: 1px;
-  background: rgba(99, 210, 239, 0.28);
-}
-
 @keyframes us-hero-arrive {
   from {
     opacity: 0;
@@ -986,32 +860,8 @@ select {
 }
 
 @media (max-width: 560px) {
-  .us-hero__eyebrow {
-    font-size: 9px;
-    letter-spacing: 0.16em;
-  }
-
-  .us-brand-button {
-    gap: 10px;
-  }
-
   .us-brand-button__name {
-    font-size: clamp(2.8rem, 12vw, 4.1rem);
-  }
-
-  .us-brand-button__mark {
-    width: 42px;
-    height: 42px;
-    border-radius: 13px;
-  }
-
-  .us-hero__footer {
-    gap: 9px;
-    font-size: 8px;
-  }
-
-  .us-hero__footer-line {
-    width: 20px;
+    font-size: clamp(2.8rem, 12vw, 4.2rem);
   }
 }
 
@@ -1020,8 +870,7 @@ select {
     animation: none;
   }
 
-  .us-brand-button,
-  .us-brand-button__arrow {
+  .us-brand-button {
     transition: none;
   }
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Zap } from "lucide-react";
 
 type UnStrandedHeroProps = {
   onEnter: () => void;
@@ -250,12 +249,6 @@ export default function UnStrandedHero({ onEnter }: UnStrandedHeroProps) {
           0.95 * hoverMultiplier,
           3,
         );
-
-        // Subtle atmospheric flash on text during strike
-        ctx.save();
-        ctx.fillStyle = "rgba(100, 200, 240, 0.012)";
-        ctx.fillRect(tx - 40, ty - 20, tw + 80, th + 40);
-        ctx.restore();
       }
 
       // =========================================================================
@@ -436,14 +429,7 @@ export default function UnStrandedHero({ onEnter }: UnStrandedHeroProps) {
         aria-hidden="true"
       />
 
-      <div className="us-hero__topline" aria-hidden="true">
-        <span className="us-hero__status-dot" />
-        HIGH VOLTAGE ROUTE PLANNING
-      </div>
-
       <section className="us-hero__content" aria-label="UnStranded">
-        <p className="us-hero__eyebrow">YOUR NEXT CHARGE STARTS HERE</p>
-
         <button
           className="us-brand-button"
           type="button"
@@ -452,35 +438,13 @@ export default function UnStrandedHero({ onEnter }: UnStrandedHeroProps) {
           onMouseLeave={() => setIsHovered(false)}
           onFocus={() => setIsHovered(true)}
           onBlur={() => setIsHovered(false)}
-          aria-label="Open the UnStranded EV route calculator"
+          aria-label="Open UnStranded"
         >
-          <span className="us-brand-button__mark" aria-hidden="true">
-            <Zap size={25} strokeWidth={2.4} />
-          </span>
           <span ref={textRef} className="us-brand-button__name">
             UnStranded
           </span>
-          <span className="us-brand-button__arrow" aria-hidden="true">
-            ↗
-          </span>
         </button>
-
-        <p className="us-hero__tagline">
-          Go farther. Know your charge.
-        </p>
-
-        <p className="us-hero__hint">
-          Select the name to plan your journey
-        </p>
       </section>
-
-      <div className="us-hero__footer" aria-hidden="true">
-        <span>ROUTE</span>
-        <span className="us-hero__footer-line" />
-        <span>ENERGY</span>
-        <span className="us-hero__footer-line" />
-        <span>UNCHAINED</span>
-      </div>
     </main>
   );
 }
