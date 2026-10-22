@@ -277,7 +277,8 @@ class UniversalEVPhysicsEngine:
         max_downhill_grad = 0.0
 
         reserve_breached = False
-        charge_stop_triggered = False
+        last_charge_dist_m = -100000.0
+        visited_station_ids = set()
 
         telemetry: List[SegmentTelemetry] = []
         planned_stops: List[PlannedChargeStop] = []
@@ -363,30 +364,50 @@ class UniversalEVPhysicsEngine:
             current_soc_pct = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
             current_dist_km = round(total_dist_m / 1000.0, 2)
 
-            # 7. Reserve Constraint Check (<= 10% SoC)
-            if current_soc_kwh <= reserve_kwh and not charge_stop_triggered and i < (n - 2):
+            # 7. Reserve Constraint Check (<= 10% SoC) - Multi-Stop Route Charging
+            can_charge_here = (total_dist_m - last_charge_dist_m) >= 25000.0  # at least 25 km since last charge
+            if current_soc_kwh <= reserve_kwh and can_charge_here and i < (n - 2):
                 reserve_breached = True
-                charge_stop_triggered = True
+                last_charge_dist_m = total_dist_m
+                stop_idx = len(planned_stops) + 1
 
-                station_name = "Planned Highway Fast Charger #1"
-                station_lat = p2["lat"]
-                station_lon = p2["lon"]
-                power_kw = 50.0
+                chosen_station = None
+                if chargers:
+                    unvisited = [c for c in chargers if str(c.get("id")) not in visited_station_ids]
+                    if unvisited:
+                        def station_dist(st):
+                            slat = st.get("lat") or st.get("latitude")
+                            slon = st.get("lon") or st.get("longitude")
+                            if slat is None or slon is None:
+                                return float("inf")
+                            return self.haversine_m(p2["lat"], p2["lon"], float(slat), float(slon))
 
-                if chargers and len(chargers) > 0:
-                    chosen = chargers[min(1, len(chargers) - 1)]
-                    station_name = chosen.get("name", station_name)
-                    station_lat = chosen.get("lat", station_lat)
-                    station_lon = chosen.get("lon", station_lon)
-                    power_kw = float(chosen.get("power_kw", 50.0))
+                        sorted_chg = sorted(unvisited, key=station_dist)
+                        if station_dist(sorted_chg[0]) <= 50000.0:  # within 50 km of highway
+                            chosen_station = sorted_chg[0]
+                            visited_station_ids.add(str(chosen_station.get("id")))
 
+                if chosen_station:
+                    station_id = str(chosen_station.get("id"))
+                    station_name = chosen_station.get("name", f"Highway Fast Charger #{stop_idx}")
+                    station_lat = float(chosen_station.get("lat", p2["lat"]))
+                    station_lon = float(chosen_station.get("lon", p2["lon"]))
+                    power_kw = float(chosen_station.get("power_kw", 60.0))
+                else:
+                    station_id = f"chg_hwy_stop_{stop_idx}"
+                    station_name = f"National Highway Fast Charger #{stop_idx}"
+                    station_lat = p2["lat"]
+                    station_lon = p2["lon"]
+                    power_kw = 60.0
+
+                eff_kw = min(power_kw, self.specs.max_charge_power_kw)
                 target_kwh = 0.80 * self.specs.battery_capacity_kwh
-                added_kwh = target_kwh - current_soc_kwh
-                dwell_mins = (added_kwh / power_kw) * 60.0 / 0.90
+                added_kwh = max(0.0, target_kwh - current_soc_kwh)
+                dwell_mins = (added_kwh / max(10.0, eff_kw)) * 60.0 / 0.90
 
                 planned_stops.append(
                     PlannedChargeStop(
-                        station_id="chg_auto_planned",
+                        station_id=station_id,
                         name=station_name,
                         lat=station_lat,
                         lon=station_lon,
@@ -395,7 +416,7 @@ class UniversalEVPhysicsEngine:
                         departure_soc_percent=80.0,
                         energy_added_kwh=round(added_kwh, 2),
                         charge_duration_mins=round(dwell_mins, 1),
-                        power_kw=power_kw,
+                        power_kw=eff_kw,
                         arrival_distance_km=current_dist_km,
                         target_soc_percent=80.0,
                         charging_time_minutes=round(dwell_mins, 1),

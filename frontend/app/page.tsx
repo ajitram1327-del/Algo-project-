@@ -186,21 +186,30 @@ export default function RouteDashboard() {
       });
       setSummary(result);
 
+      if ((result as any).available_chargers && (result as any).available_chargers.length > 0) {
+        setChargers((result as any).available_chargers);
+      }
+
       if (result.route_coordinates && result.route_coordinates.length >= 2) {
         setActiveRouteCoords(result.route_coordinates);
       }
 
-      // Async fetch AI briefing decoupled from route generation
-      setBriefingLoading(true);
-      fetchDriverBriefing({
-        vehicle_model: selectedVehicle,
-        passengers,
-        ambient_temp_c: tempC,
-        route_summary: result,
-      })
-        .then((text) => setBriefing(text))
-        .catch(() => setBriefing('Unable to generate AI briefing at this time.'))
-        .finally(() => setBriefingLoading(false));
+      // If instant deterministic driver briefing was generated, display it immediately
+      if ((result as any).driver_briefing) {
+        setBriefing((result as any).driver_briefing);
+      } else {
+        // Async fallback fetch
+        setBriefingLoading(true);
+        fetchDriverBriefing({
+          vehicle_model: selectedVehicle,
+          passengers,
+          ambient_temp_c: tempC,
+          route_summary: result,
+        })
+          .then((text) => setBriefing(text))
+          .catch(() => setBriefing('Unable to generate AI briefing at this time.'))
+          .finally(() => setBriefingLoading(false));
+      }
     } catch (err) {
       console.error(err);
     } finally {

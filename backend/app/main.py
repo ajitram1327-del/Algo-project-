@@ -117,13 +117,13 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
             # Step 1: Fetch real road geometries from OSRM
             coords_2d = await geo_service.fetch_route_geometry(orig_lat, orig_lon, dest_lat, dest_lon)
 
-            # Step 2: Fetch 3D elevations and candidate chargers in parallel
+            # Step 2: Fetch 3D elevations and candidate chargers in parallel along the whole corridor
             mid_lat = (orig_lat + dest_lat) / 2.0
             mid_lon = (orig_lon + dest_lon) / 2.0
 
             elevations, candidate_chargers = await asyncio.gather(
                 geo_service.fetch_elevation_profile(coords_2d),
-                geo_service.fetch_chargers_along_corridor(mid_lat, mid_lon),
+                geo_service.fetch_chargers_along_corridor(mid_lat, mid_lon, route_coords=coords_2d),
             )
 
             # Step 3: Combine coordinates into 3D representation [[lat, lon, ele], ...]
@@ -182,6 +182,8 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
         response["route_geometry"] = coords_2d
         # Format for Leaflet polyline: [[lon, lat], ...]
         response["route_coordinates"] = [[pt[1], pt[0]] for pt in coords_2d]
+        response["available_chargers"] = candidate_chargers
+        response["charging_stops"] = [stop.model_dump() for stop in physics_report.planned_stops]
 
         return response
 
