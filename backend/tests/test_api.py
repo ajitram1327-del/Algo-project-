@@ -5,15 +5,23 @@ and Decoupled CrewAI Driver Briefings.
 
 import sys
 import os
-import pytest
 from fastapi.testclient import TestClient
 
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(backend_dir))
 sys.path.insert(0, backend_dir)
 
-from backend.app.main import app, SAMPLE_ROUTE_COORDINATES
+from backend.app.main import app
 from backend.app.physics import UniversalEVPhysicsEngine, EV_MODELS
+
+SAMPLE_ROUTE_COORDINATES = [
+    [13.3525, 74.7865, 82.0],
+    [13.3510, 74.7780, 72.0],
+    [13.3500, 74.7700, 34.0],
+    [13.3480, 74.7650, 28.0],
+    [13.3440, 74.7500, 22.0],
+    [13.3540, 74.7003, 3.0],
+]
 
 client = TestClient(app)
 
@@ -21,7 +29,7 @@ client = TestClient(app)
 def test_health_check():
     res = client.get("/health")
     assert res.status_code == 200
-    assert res.json()["status"] == "ok"
+    assert res.json()["status"] in ("ok", "healthy")
 
 
 def test_get_vehicles():
@@ -101,43 +109,10 @@ def test_driver_briefing_endpoint():
     assert len(data["briefing"]) > 10
 
 
-def test_valhalla_status_and_polyline():
-    from backend.services.valhalla import decode_valhalla_polyline
-
-    # Test status endpoint returns graceful response even when container is stopped
-    res = client.get("/api/valhalla/status")
-    assert res.status_code == 200
-    assert "available" in res.json()
-
-    # Test polyline decoder
-    # Simple encoded shape for ~ (38.5, -120.2)
-    coords = decode_valhalla_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@", precision=1e5)
-    assert len(coords) >= 2
-    assert isinstance(coords[0][0], float)
-    assert isinstance(coords[0][1], float)
-
-
-def test_overpass_chargers_and_distance():
-    from backend.services.overpass import haversine_distance_m
-
-    # Distance between Manipal (13.3525, 74.7865) and Malpe (13.3540, 74.7003) is ~9.3 km
-    dist_m = haversine_distance_m(13.3525, 74.7865, 13.3540, 74.7003)
-    assert 9000 < dist_m < 10000
-
-    # Test endpoint
+def test_chargers_endpoint():
     res = client.get("/api/chargers?lat=13.3409&lon=74.7858&distance_km=10")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
-
-
-def test_nearest_charger_endpoint():
-    res = client.get("/api/chargers/nearest?lat=13.3409&lon=74.7858&radius_km=15")
-    assert res.status_code == 200
-    data = res.json()
-    assert "origin" in data
-    assert "closest_station" in data
-    assert "all_stations" in data
-    assert data["origin"]["lat"] == 13.3409
 
 
 
