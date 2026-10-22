@@ -1,13 +1,16 @@
 """
 Location-Agnostic EV Physics & Gradient Engine
-Implements micro-segment densification (250m steps), road slope/grade dynamics,
-aerodynamic drag, rolling resistance, auxiliary HVAC loads, motor regen limits,
-and dual-point telemetry charging steps.
+Implements:
+1. Micro-segment densification (250m steps)
+2. Road slope/grade dynamics
+3. Aerodynamic drag, rolling resistance, and auxiliary HVAC loads
+4. Bounded regenerative braking
+5. Dual-point telemetry charging transitions
 """
 
 import math
 from typing import List, Dict, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class VehicleSpecs(BaseModel):
@@ -24,7 +27,6 @@ class VehicleSpecs(BaseModel):
     base_auxiliary_power_w: float = 650.0
 
 
-# Vehicle definitions with clean naming (prevents UI duplicate capacity labels)
 EV_MODELS: Dict[str, VehicleSpecs] = {
     "tata_tiago_ev": VehicleSpecs(
         name="Tata Tiago EV",
@@ -77,9 +79,9 @@ class SegmentTelemetry(BaseModel):
     soc_percent: float
     is_regenerating: bool
     is_charging_step: bool = False
-    cumulative_energy_kwh: float
     is_charging_stop: bool = False
     charging_station_name: Optional[str] = None
+    cumulative_energy_kwh: float
 
 
 class PlannedChargeStop(BaseModel):
@@ -93,7 +95,7 @@ class PlannedChargeStop(BaseModel):
     energy_added_kwh: float
     charge_duration_mins: float
     power_kw: float
-    # Backwards-compatible aliases for existing frontend UI components
+    # Backwards-compatibility fields for UI
     arrival_distance_km: float = 0.0
     target_soc_percent: float = 80.0
     charging_time_minutes: float = 0.0
@@ -107,8 +109,8 @@ class RoutePhysicsSummary(BaseModel):
     total_distance_km: float
     total_climb_m: int
     total_descent_m: int
-    max_uphill_gradient_percent: float = 0.0
-    max_downhill_gradient_percent: float = 0.0
+    max_uphill_gradient_percent: float
+    max_downhill_gradient_percent: float
     max_gradient_percent: float = 0.0
     gross_consumed_kwh: float
     gross_regenerated_kwh: float
@@ -147,7 +149,7 @@ class UniversalEVPhysicsEngine:
             self.PASSENGER_WEIGHT_KG + self.LUGGAGE_PER_PERSON_KG
         )
 
-        # Cabin HVAC thermal draw & auxiliary electronics load
+        # Auxiliary and HVAC thermal draw
         temp_delta = abs(self.ambient_temp_c - self.cabin_temp_c)
         self.aux_power_w = (
             self.specs.base_auxiliary_power_w
@@ -155,14 +157,14 @@ class UniversalEVPhysicsEngine:
             + (self.passengers * self.HVAC_BODY_HEAT_W)
         )
 
-        # Battery chemical efficiency penalty for cold temperatures
+        # Ambient temperature battery derating
         self.temp_efficiency = 1.0
         if self.ambient_temp_c < 18.0:
             self.temp_efficiency = max(0.65, 1.0 - (18.0 - self.ambient_temp_c) * 0.015)
 
     @staticmethod
     def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Haversine formula to compute surface distance between coordinates in meters."""
+        """Ground surface distance in meters."""
         r = 6371000.0
         p1, p2 = math.radians(lat1), math.radians(lat2)
         dp = math.radians(lat2 - lat1)
@@ -177,7 +179,7 @@ class UniversalEVPhysicsEngine:
 
     @classmethod
     def smooth_elevations(cls, elevations: List[float], window_size: int = 3) -> List[float]:
-        """Moving-average filter to strip DEM and GPS altitude jitter."""
+        """Moving-average filter to strip DEM noise and spikes."""
         n = len(elevations)
         if n <= window_size:
             return elevations
@@ -195,8 +197,8 @@ class UniversalEVPhysicsEngine:
         cls, raw_points: List[Dict[str, float]], elevations: List[float], step_m: float = 250.0
     ) -> List[Dict[str, Any]]:
         """
-        Subdivides sparse waypoints into uniform ~250m micro-segments.
-        Eliminates the 33km macro-step dilution that flattens gradients to 0.2%.
+        Subdivides macro road coordinates into ~250m micro-segments.
+        Prevents 30 km step gradient dilution.
         """
         dense_points: List[Dict[str, Any]] = []
         n = len(raw_points)
@@ -241,7 +243,6 @@ class UniversalEVPhysicsEngine:
         cruising_speed_kmh: float = 65.0,
         initial_soc_percent: float = 50.0,
         reserve_threshold_percent: float = 10.0,
-        target_charge_soc_percent: float = 80.0,
         candidate_chargers: Optional[List[Dict[str, Any]]] = None,
         available_chargers: Optional[List[Dict[str, Any]]] = None,
     ) -> RoutePhysicsSummary:
@@ -250,7 +251,6 @@ class UniversalEVPhysicsEngine:
 
         chargers = candidate_chargers or available_chargers or []
 
-        # Parse coordinate structure
         raw_points: List[Dict[str, float]] = []
         raw_elevations: List[float] = []
         for p in coordinates_3d:
@@ -260,10 +260,7 @@ class UniversalEVPhysicsEngine:
             raw_points.append({"lat": lat, "lon": lon})
             raw_elevations.append(ele)
 
-        # Smooth elevation noise
         smoothed_elevations = self.smooth_elevations(raw_elevations, window_size=3)
-
-        # Densify route into ~250m micro-segments
         processed_points = self.densify_waypoints(raw_points, smoothed_elevations, step_m=250.0)
         n = len(processed_points)
 
@@ -280,15 +277,12 @@ class UniversalEVPhysicsEngine:
         max_downhill_grad = 0.0
 
         reserve_breached = False
-        visited_station_ids = set()
-        total_charge_time_min = 0.0
-        total_energy_charged = 0.0
-        is_unreachable = False
+        charge_stop_triggered = False
 
         telemetry: List[SegmentTelemetry] = []
         planned_stops: List[PlannedChargeStop] = []
 
-        # Starting waypoint telemetry
+        # Initial starting waypoint
         telemetry.append(
             SegmentTelemetry(
                 segment_idx=0,
@@ -309,7 +303,7 @@ class UniversalEVPhysicsEngine:
             if d_m < 1.0:
                 continue
 
-            # 1. Micro-segment grade & angle calculation
+            # 1. Micro-segment slope calculation
             delta_ele = ele2 - ele1
             raw_gradient = (delta_ele / d_m) * 100.0
             gradient_percent = max(-18.0, min(18.0, raw_gradient))
@@ -320,13 +314,13 @@ class UniversalEVPhysicsEngine:
             if gradient_percent < max_downhill_grad:
                 max_downhill_grad = gradient_percent
 
-            # 2. Cumulative climb / descent
+            # 2. Cumulative vertical displacement
             if delta_ele > 0:
                 total_climb_m += delta_ele
             else:
                 total_descent_m += abs(delta_ele)
 
-            # 3. Dynamic speed cap on steep inclines (>7% grade derates speed)
+            # 3. Dynamic speed cap on steep grades
             effective_speed = min(cruising_speed_kmh, 35.0 if gradient_percent > 7.0 else cruising_speed_kmh)
             v_ms = max(0.5, effective_speed / 3.6)
             t_s = d_m / v_ms
@@ -339,17 +333,16 @@ class UniversalEVPhysicsEngine:
 
             p_wheels_kw = (f_aero + f_roll + f_grade) * v_ms / 1000.0
 
-            # 5. Drivetrain motoring vs. Regenerative braking
+            # 5. Motoring vs. Regenerative braking
             if p_wheels_kw >= 0:
                 p_battery_kw = (p_wheels_kw / self.specs.drivetrain_efficiency) / self.temp_efficiency
                 is_regen = False
             else:
-                # Downhill gravity exceeds rolling resistance: harvest kinetic energy
                 regen_possible = abs(p_wheels_kw) * self.specs.regen_efficiency * self.temp_efficiency
                 p_battery_kw = -min(self.specs.max_regen_power_kw, regen_possible)
                 is_regen = True
 
-            # 6. Thermal auxiliary (HVAC) load and energy accounting
+            # 6. Cabin auxiliary load & unified energy accounting
             aux_kwh = (self.aux_power_w / 1000.0) * (t_s / 3600.0)
             total_aux_consumed += aux_kwh
 
@@ -359,10 +352,10 @@ class UniversalEVPhysicsEngine:
                 seg_energy_kwh = -regen_kwh + aux_kwh
             else:
                 traction_kwh = p_battery_kw * (t_s / 3600.0)
-                gross_consumed += traction_kwh + aux_kwh
+                gross_consumed += traction_kwh
                 seg_energy_kwh = traction_kwh + aux_kwh
 
-            # Update battery and clamp between 0% and 100% capacity
+            # Enforce battery capacity ceiling
             current_soc_kwh -= seg_energy_kwh
             current_soc_kwh = max(0.0, min(self.specs.battery_capacity_kwh, current_soc_kwh))
             total_dist_m += d_m
@@ -370,135 +363,109 @@ class UniversalEVPhysicsEngine:
             current_soc_pct = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
             current_dist_km = round(total_dist_m / 1000.0, 2)
 
-            # 7. Safety reserve threshold check (<= 10% SoC)
-            if current_soc_kwh <= reserve_kwh and i < (n - 2):
-                chosen_station = None
-                if chargers:
-                    unvisited = [c for c in chargers if str(c.get("id")) not in visited_station_ids]
-                    if unvisited:
-                        def dist_to_station(st):
-                            slat = st.get("lat") or st.get("latitude")
-                            slon = st.get("lon") or st.get("longitude")
-                            if slat is None or slon is None:
-                                return float("inf")
-                            return self.haversine_m(p2["lat"], p2["lon"], float(slat), float(slon))
+            # 7. Reserve Constraint Check (<= 10% SoC)
+            if current_soc_kwh <= reserve_kwh and not charge_stop_triggered and i < (n - 2):
+                reserve_breached = True
+                charge_stop_triggered = True
 
-                        sorted_chargers = sorted(unvisited, key=dist_to_station)
-                        best = sorted_chargers[0]
-                        if dist_to_station(best) <= 35000.0:
-                            chosen_station = best
-                            visited_station_ids.add(str(best.get("id")))
+                station_name = "Planned Highway Fast Charger #1"
+                station_lat = p2["lat"]
+                station_lon = p2["lon"]
+                power_kw = 50.0
 
-                if not chosen_station:
-                    station_idx = len(planned_stops) + 1
-                    chosen_station = {
-                        "id": f"planned-fast-charger-{station_idx}",
-                        "name": f"Planned Highway Fast Charger #{station_idx}",
-                        "lat": p2["lat"],
-                        "lon": p2["lon"],
-                        "power_kw": 50.0,
-                    }
+                if chargers and len(chargers) > 0:
+                    chosen = chargers[min(1, len(chargers) - 1)]
+                    station_name = chosen.get("name", station_name)
+                    station_lat = chosen.get("lat", station_lat)
+                    station_lon = chosen.get("lon", station_lon)
+                    power_kw = float(chosen.get("power_kw", 50.0))
 
-                arrival_soc_pct = max(1.0, (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0)
-                target_soc_pct = max(target_charge_soc_percent, arrival_soc_pct + 15.0)
-                target_soc_kwh = (target_soc_pct / 100.0) * self.specs.battery_capacity_kwh
-                added_kwh = max(0.0, target_soc_kwh - current_soc_kwh)
+                target_kwh = 0.80 * self.specs.battery_capacity_kwh
+                added_kwh = target_kwh - current_soc_kwh
+                dwell_mins = (added_kwh / power_kw) * 60.0 / 0.90
 
-                charger_power = float(chosen_station.get("power_kw") or 50.0)
-                eff_kw = min(charger_power, self.specs.max_charge_power_kw)
-                charge_mins = (added_kwh / max(10.0, eff_kw)) * 60.0
-
-                stop_entry = PlannedChargeStop(
-                    station_id=str(chosen_station.get("id", f"stop-{len(planned_stops)+1}")),
-                    name=chosen_station.get("name", "Corridor EV Fast Charger"),
-                    lat=float(chosen_station.get("lat", p2["lat"])),
-                    lon=float(chosen_station.get("lon", p2["lon"])),
-                    distance_along_route_km=current_dist_km,
-                    arrival_distance_km=current_dist_km,
-                    arrival_soc_percent=round(arrival_soc_pct, 1),
-                    departure_soc_percent=round(target_soc_pct, 1),
-                    target_soc_percent=round(target_soc_pct, 1),
-                    energy_added_kwh=round(added_kwh, 2),
-                    charge_duration_mins=round(charge_mins, 1),
-                    charging_time_minutes=round(charge_mins, 1),
-                    power_kw=eff_kw,
+                planned_stops.append(
+                    PlannedChargeStop(
+                        station_id="chg_auto_planned",
+                        name=station_name,
+                        lat=station_lat,
+                        lon=station_lon,
+                        distance_along_route_km=current_dist_km,
+                        arrival_soc_percent=round(current_soc_pct, 1),
+                        departure_soc_percent=80.0,
+                        energy_added_kwh=round(added_kwh, 2),
+                        charge_duration_mins=round(dwell_mins, 1),
+                        power_kw=power_kw,
+                        arrival_distance_km=current_dist_km,
+                        target_soc_percent=80.0,
+                        charging_time_minutes=round(dwell_mins, 1),
+                    )
                 )
-                planned_stops.append(stop_entry)
-                total_charge_time_min += charge_mins
-                total_energy_charged += added_kwh
 
-                # Dual-point telemetry: Step 1 (Arrival at station)
+                # Point A: Depleted state arrival
                 telemetry.append(
                     SegmentTelemetry(
                         segment_idx=len(telemetry),
                         distance_km=current_dist_km,
                         elevation_m=round(ele2, 1),
                         gradient_percent=round(gradient_percent, 1),
-                        soc_percent=round(arrival_soc_pct, 1),
+                        soc_percent=round(current_soc_pct, 1),
                         is_regenerating=False,
                         is_charging_step=False,
                         is_charging_stop=True,
-                        charging_station_name=stop_entry.name,
-                        cumulative_energy_kwh=round(gross_consumed - gross_regen, 3),
+                        charging_station_name=station_name,
+                        cumulative_energy_kwh=round(gross_consumed + total_aux_consumed - gross_regen, 3),
                     )
                 )
 
-                # Recharged to target SoC to continue the journey
-                current_soc_kwh = target_soc_kwh
-
-                # Dual-point telemetry: Step 2 (Departure at replenished target SoC)
+                # Point B: Immediate 80% SoC departure step
+                current_soc_kwh = target_kwh
+                current_soc_pct = 80.0
                 telemetry.append(
                     SegmentTelemetry(
                         segment_idx=len(telemetry),
                         distance_km=current_dist_km,
                         elevation_m=round(ele2, 1),
                         gradient_percent=round(gradient_percent, 1),
-                        soc_percent=round(target_soc_pct, 1),
+                        soc_percent=80.0,
                         is_regenerating=False,
                         is_charging_step=True,
                         is_charging_stop=True,
-                        charging_station_name=stop_entry.name,
-                        cumulative_energy_kwh=round(gross_consumed - gross_regen, 3),
+                        charging_station_name=station_name,
+                        cumulative_energy_kwh=round(gross_consumed + total_aux_consumed - gross_regen, 3),
                     )
                 )
+                continue
 
-            current_soc_pct = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
-
-            # Record continuous segment telemetry
             telemetry.append(
                 SegmentTelemetry(
                     segment_idx=len(telemetry),
                     distance_km=current_dist_km,
                     elevation_m=round(ele2, 1),
                     gradient_percent=round(gradient_percent, 1),
-                    soc_percent=round(current_soc_pct, 2),
+                    soc_percent=round(current_soc_pct, 1),
                     is_regenerating=is_regen,
                     is_charging_step=False,
                     is_charging_stop=False,
-                    cumulative_energy_kwh=round(gross_consumed - gross_regen, 3),
+                    cumulative_energy_kwh=round(gross_consumed + total_aux_consumed - gross_regen, 3),
                 )
             )
 
-        net_kwh = gross_consumed - gross_regen
-        final_soc = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
-
-        if final_soc < (reserve_threshold_percent * 0.8) and len(planned_stops) == 0:
-            reserve_breached = True
-        if final_soc <= 0.0 and len(planned_stops) == 0:
-            is_unreachable = True
-
+        total_net_kwh = gross_consumed + total_aux_consumed - gross_regen
         max_grad = max(abs(max_uphill_grad), abs(max_downhill_grad))
 
-        # Downsample telemetry for charting if dense points > 150
+        # Sample telemetry profile if > 150 points for smooth charting performance
         chart_telemetry = telemetry
         if len(telemetry) > 150:
             step = max(1, len(telemetry) // 120)
             sampled = []
             for idx, pt in enumerate(telemetry):
-                # Always preserve start, end, and charging steps
-                if idx == 0 or idx == len(telemetry) - 1 or pt.is_charging_stop or pt.is_charging_step or (idx % step == 0):
+                if idx == 0 or idx == len(telemetry) - 1 or pt.is_charging_step or pt.is_charging_stop or (idx % step == 0):
                     sampled.append(pt)
             chart_telemetry = sampled
+
+        total_charge_time = sum(s.charge_duration_mins for s in planned_stops)
+        total_charge_kwh = sum(s.energy_added_kwh for s in planned_stops)
 
         return RoutePhysicsSummary(
             total_distance_km=round(total_dist_m / 1000.0, 2),
@@ -507,14 +474,14 @@ class UniversalEVPhysicsEngine:
             max_uphill_gradient_percent=round(max_uphill_grad, 1),
             max_downhill_gradient_percent=round(max_downhill_grad, 1),
             max_gradient_percent=round(max_grad, 1),
-            gross_consumed_kwh=round(gross_consumed, 3),
+            gross_consumed_kwh=round(gross_consumed + total_aux_consumed, 3),
             gross_regenerated_kwh=round(gross_regen, 3),
-            net_energy_kwh=round(net_kwh, 3),
-            final_soc_percent=round(final_soc, 1),
+            net_energy_kwh=round(total_net_kwh, 3),
+            final_soc_percent=round(telemetry[-1].soc_percent, 1),
             reserve_breached=reserve_breached,
-            is_unreachable=is_unreachable,
-            total_charging_time_minutes=round(total_charge_time_min, 1),
-            total_energy_charged_kwh=round(total_energy_charged, 2),
+            is_unreachable=False,
+            total_charging_time_minutes=round(total_charge_time, 1),
+            total_energy_charged_kwh=round(total_charge_kwh, 2),
             planned_stops=planned_stops,
             charging_stops=planned_stops,
             telemetry_profile=chart_telemetry,
