@@ -106,19 +106,36 @@ select {
   padding: 2px 0 8px;
 }
 
-.route-brand h1 {
+.route-brand-title {
   display: flex;
   align-items: center;
   gap: 9px;
   margin: 0;
-  color: var(--text);
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.035em;
 }
 
-.route-brand h1 svg {
-  color: var(--accent) !important;
+.route-brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.12);
+}
+
+.route-brand-text {
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: -0.065em;
+  line-height: 1;
+  background: linear-gradient(180deg, #071f30 0%, #0369a1 58%, #0ea5e9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0.5px rgba(14, 165, 233, 0.4);
+  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.22));
+  user-select: none;
 }
 
 .route-brand p {

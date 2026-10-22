@@ -248,11 +248,13 @@ function RoutePlanner() {
         {/* LEFT: Controls & Analytics Sidebar */}
         <aside className="route-sidebar">
           <div className="route-brand">
-            <h1 className="text-xl font-bold tracking-tight text-emerald-400 flex items-center gap-2">
-              <Zap className="h-5 w-5 text-emerald-400" aria-hidden="true" />
-              EV Physics Route Planner
+            <h1 className="route-brand-title flex items-center gap-2.5">
+              <span className="route-brand-mark" aria-hidden="true">
+                <Zap className="h-5 w-5 text-sky-500 fill-sky-400/20" strokeWidth={2.4} />
+              </span>
+              <span className="route-brand-text">UnStranded</span>
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-400 mt-1">
               Real-Time 3D Elevation & Dynamic Battery Telemetry
             </p>
           </div>

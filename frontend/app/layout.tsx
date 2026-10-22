@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EV Physics Route Planner",
+  title: "UnStranded — EV Route & Physics Telemetry",
   description: "Physics-Aware EV Route & Charger Telemetry Engine",
 };
 
