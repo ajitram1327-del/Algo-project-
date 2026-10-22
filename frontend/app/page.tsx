@@ -397,7 +397,7 @@ function RoutePlanner() {
               >
                 {vehicles.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.name} ({v.battery_kwh} kWh)
+                    {v.name}
                   </option>
                 ))}
               </select>

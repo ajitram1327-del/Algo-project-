@@ -49,7 +49,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=450.0,
     ),
     "tata_punch_ev": VehicleSpecs(
-        name="Tata Punch EV (Long Range)",
+        name="Tata Punch EV",
         curb_weight_kg=1340.0,
         battery_capacity_kwh=35.0,
         max_charge_power_kw=50.0,
@@ -59,7 +59,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=700.0,
     ),
     "mahindra_xuv400": VehicleSpecs(
-        name="Mahindra XUV400 EL Pro",
+        name="Mahindra XUV400",
         curb_weight_kg=1578.0,
         battery_capacity_kwh=39.4,
         max_charge_power_kw=50.0,
@@ -79,7 +79,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=750.0,
     ),
     "tata_curvv_ev": VehicleSpecs(
-        name="Tata Curvv EV (55 kWh)",
+        name="Tata Curvv EV",
         curb_weight_kg=1550.0,
         battery_capacity_kwh=55.0,
         max_charge_power_kw=70.0,
@@ -109,7 +109,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=850.0,
     ),
     "byd_seal": VehicleSpecs(
-        name="BYD Seal (Premium / Extended)",
+        name="BYD Seal",
         curb_weight_kg=2055.0,
         battery_capacity_kwh=82.56,
         max_charge_power_kw=150.0,
@@ -119,7 +119,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=800.0,
     ),
     "hyundai_ioniq_5": VehicleSpecs(
-        name="Hyundai Ioniq 5 RWD",
+        name="Hyundai Ioniq 5",
         curb_weight_kg=1910.0,
         battery_capacity_kwh=72.6,
         max_charge_power_kw=233.0,
@@ -129,7 +129,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=850.0,
     ),
     "kia_ev6": VehicleSpecs(
-        name="Kia EV6 GT-Line",
+        name="Kia EV6",
         curb_weight_kg=1980.0,
         battery_capacity_kwh=77.4,
         max_charge_power_kw=233.0,
@@ -139,7 +139,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=850.0,
     ),
     "tesla_model_3": VehicleSpecs(
-        name="Tesla Model 3 Long Range",
+        name="Tesla Model 3",
         curb_weight_kg=1765.0,
         battery_capacity_kwh=78.1,
         max_charge_power_kw=250.0,
@@ -149,7 +149,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=700.0,
     ),
     "tesla_model_y": VehicleSpecs(
-        name="Tesla Model Y Long Range AWD",
+        name="Tesla Model Y",
         curb_weight_kg=1980.0,
         battery_capacity_kwh=78.1,
         max_charge_power_kw=250.0,
@@ -159,7 +159,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=800.0,
     ),
     "volvo_ex40": VehicleSpecs(
-        name="Volvo EX40 Recharge Extended Range",
+        name="Volvo EX40",
         curb_weight_kg=2040.0,
         battery_capacity_kwh=82.0,
         max_charge_power_kw=200.0,
@@ -169,7 +169,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=850.0,
     ),
     "bmw_i4": VehicleSpecs(
-        name="BMW i4 eDrive40",
+        name="BMW i4",
         curb_weight_kg=2050.0,
         battery_capacity_kwh=83.9,
         max_charge_power_kw=205.0,
@@ -179,7 +179,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         base_auxiliary_power_w=850.0,
     ),
     "mercedes_eqb": VehicleSpecs(
-        name="Mercedes-Benz EQB 350 4MATIC",
+        name="Mercedes-Benz EQB",
         curb_weight_kg=2175.0,
         battery_capacity_kwh=66.5,
         max_charge_power_kw=100.0,

@@ -230,6 +230,9 @@ export default function RouteJourneyAnimation({
         const arrivalSoc = Number(
           stop.arrival_soc_percent ?? stop.arrival_soc
         );
+        const targetSoc = Number(
+          stop.target_soc_percent ?? stop.departure_soc
+        );
 
         return [
           {
@@ -239,9 +242,11 @@ export default function RouteJourneyAnimation({
             position,
             routeDistance: projected.distanceAlongRoute,
             arrivalSoc: Number.isFinite(arrivalSoc)
-              ? clamp(arrivalSoc, 0, 95)
+              ? clamp(arrivalSoc, 0, 75)
               : 20,
-            targetSoc: 100,
+            targetSoc: Number.isFinite(targetSoc)
+              ? clamp(targetSoc, 20, 80)
+              : 80,
           },
         ];
       })
@@ -258,7 +263,7 @@ export default function RouteJourneyAnimation({
             position: midPos,
             routeDistance: midDist,
             arrivalSoc: 20,
-            targetSoc: 100,
+            targetSoc: 80,
           },
         ];
       }
@@ -417,13 +422,13 @@ export default function RouteJourneyAnimation({
   const chargeIcon = activeStop
     ? (() => {
         const startSoc = activeStop.arrivalSoc ?? 20;
-        const endSoc = 100;
+        const endSoc = activeStop.targetSoc ?? 80;
         const batteryLevel = clamp(
           startSoc + (endSoc - startSoc) * frame.chargeProgress,
           0,
-          100
+          endSoc
         );
-        const isFull = batteryLevel >= 99.5;
+        const isCharged = batteryLevel >= endSoc - 0.5;
 
         return L.divIcon({
           className: "route-charge-marker-wrap",
@@ -437,8 +442,8 @@ export default function RouteJourneyAnimation({
               </span>
               <span style="display:flex;align-items:center;gap:3px;">
                 ${
-                  isFull
-                    ? `<span>Full 100%</span>`
+                  isCharged
+                    ? `<span>Charged ${Math.round(endSoc)}%</span>`
                     : `<svg width="11" height="11" viewBox="0 0 24 24" fill="#16845b" stroke="#16845b" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span>Charging ${Math.round(batteryLevel)}%</span>`
                 }
               </span>
