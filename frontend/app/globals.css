@@ -705,7 +705,8 @@ select {
   justify-content: center;
   gap: 7px;
   width: max-content;
-  padding: 8px 10px;
+  white-space: nowrap;
+  padding: 8px 12px;
   border: 1px solid #d7e9df;
   border-radius: 999px;
   background: #fff;
@@ -721,6 +722,8 @@ select {
   overflow: hidden;
   border: 1.5px solid #16845b;
   border-radius: 3px;
+  background: #f0fdf4;
+  flex-shrink: 0;
 }
 
 .route-charge-battery::after {
@@ -738,7 +741,8 @@ select {
   display: block;
   height: 100%;
   border-radius: 1px;
-  background: #29a875;
+  background: linear-gradient(90deg, #10b981, #059669);
+  transition: width 0.08s linear;
 }
 
 /* UnStranded electric hero */

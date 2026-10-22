@@ -44,7 +44,7 @@ type Props = {
 
 const MAX_STOP_DISTANCE_FROM_ROUTE_M = 250;
 const DRIVE_DURATION_MS = 42_000;
-const CHARGE_DURATION_MS = 2_800;
+const CHARGE_DURATION_MS = 10_000;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
@@ -208,8 +208,8 @@ export default function RouteJourneyAnimation({
 
   const totalDistance = cumulative[cumulative.length - 1] ?? 0;
 
-  // Stops come exclusively from the physics engine's charging plan.
-  // Pick one or two again after every successful simulation.
+  // Stops come from the physics engine's charging plan or fallback midpoint stop.
+  // Guarantees that the vehicle always stops for 10 seconds to charge to full.
   const selectedStops = useMemo(() => {
     const candidates: JourneyStop[] = chargingStops
       .flatMap((stop, index) => {
@@ -230,9 +230,6 @@ export default function RouteJourneyAnimation({
         const arrivalSoc = Number(
           stop.arrival_soc_percent ?? stop.arrival_soc
         );
-        const targetSoc = Number(
-          stop.target_soc_percent ?? stop.departure_soc
-        );
 
         return [
           {
@@ -242,40 +239,41 @@ export default function RouteJourneyAnimation({
             position,
             routeDistance: projected.distanceAlongRoute,
             arrivalSoc: Number.isFinite(arrivalSoc)
-              ? clamp(arrivalSoc, 0, 100)
-              : undefined,
-            targetSoc: Number.isFinite(targetSoc)
-              ? clamp(targetSoc, 0, 100)
-              : undefined,
+              ? clamp(arrivalSoc, 0, 95)
+              : 20,
+            targetSoc: 100,
           },
         ];
       })
       .sort((a, b) => a.routeDistance - b.routeDistance);
 
-    if (candidates.length === 0) return [];
-
-    const shuffled = [...candidates];
-
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    if (candidates.length === 0) {
+      if (totalDistance > 0) {
+        // Fallback midpoint stop along the actual road geometry so the user always sees the 10-second charging animation
+        const midDist = totalDistance * 0.5;
+        const midPos = pointAtDistance(positions, cumulative, midDist);
+        return [
+          {
+            id: "corridor-charging-stop",
+            position: midPos,
+            routeDistance: midDist,
+            arrivalSoc: 20,
+            targetSoc: 100,
+          },
+        ];
+      }
+      return [];
     }
 
-    const first = shuffled[0];
-    const chooseTwo = shuffled.length > 1 && Math.random() < 0.35;
-
-    if (!chooseTwo) return [first];
-
-    const minimumGap = Math.max(5_000, totalDistance * 0.15);
-    const second = shuffled.find(
-      (stop) =>
-        stop.id !== first.id &&
-        Math.abs(stop.routeDistance - first.routeDistance) >= minimumGap
+    // Pick the most central planned charging stop along the journey
+    const bestStop = candidates.reduce((prev, curr) =>
+      Math.abs(curr.routeDistance - totalDistance * 0.5) <
+      Math.abs(prev.routeDistance - totalDistance * 0.5)
+        ? curr
+        : prev
     );
 
-    return second
-      ? [first, second].sort((a, b) => a.routeDistance - b.routeDistance)
-      : [first];
+    return [bestStop];
   }, [chargingStops, positions, cumulative, totalDistance, journeyRunId]);
 
   const { phases, durationMs } = useMemo(() => {
@@ -418,26 +416,36 @@ export default function RouteJourneyAnimation({
 
   const chargeIcon = activeStop
     ? (() => {
-        const startSoc = activeStop.arrivalSoc ?? 18;
-        const endSoc = activeStop.targetSoc ?? 78;
-        const batteryLevel =
-          startSoc + (endSoc - startSoc) * frame.chargeProgress;
+        const startSoc = activeStop.arrivalSoc ?? 20;
+        const endSoc = 100;
+        const batteryLevel = clamp(
+          startSoc + (endSoc - startSoc) * frame.chargeProgress,
+          0,
+          100
+        );
+        const isFull = batteryLevel >= 99.5;
 
         return L.divIcon({
           className: "route-charge-marker-wrap",
           html: `
             <div class="route-charge-bubble">
-              <span class="route-charge-battery">
+              <span class="route-charge-battery" title="Battery: ${Math.round(batteryLevel)}%">
                 <span
                   class="route-charge-fill"
-                  style="width:${clamp(batteryLevel, 0, 100)}%"
+                  style="width:${batteryLevel.toFixed(1)}%"
                 ></span>
               </span>
-              <span>Charging</span>
+              <span style="display:flex;align-items:center;gap:3px;">
+                ${
+                  isFull
+                    ? `<span>Full 100%</span>`
+                    : `<svg width="11" height="11" viewBox="0 0 24 24" fill="#16845b" stroke="#16845b" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg><span>Charging ${Math.round(batteryLevel)}%</span>`
+                }
+              </span>
             </div>
           `,
-          iconSize: [130, 38],
-          iconAnchor: [65, 44],
+          iconSize: [140, 38],
+          iconAnchor: [70, 48],
         });
       })()
     : null;
@@ -448,7 +456,7 @@ export default function RouteJourneyAnimation({
 
       {activeStop && chargeIcon && (
         <Marker
-          position={activeStop.position}
+          position={carPosition}
           icon={chargeIcon}
           interactive={false}
           zIndexOffset={1000}

@@ -89,30 +89,39 @@ class GeographyService:
         locations = [{"latitude": lat, "longitude": lon} for lat, lon in sampled]
 
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.post(self.OPEN_ELEVATION_URL, json={"locations": locations})
                 if res.status_code == 200:
                     results = res.json().get("results", [])
-                    sampled_elevations = [float(r["elevation"]) for r in results]
+                    sampled_elevations = [
+                        float(r["elevation"])
+                        for r in results
+                        if r.get("elevation") is not None
+                    ]
 
                     if sampled_elevations:
-                        # Interpolate elevations across full coordinates array
+                        # Smooth continuous linear interpolation across full coordinates array
                         full_elevations = []
                         denom = max(1, n - 1)
                         s_denom = max(1, len(sampled_elevations) - 1)
                         for i in range(n):
-                            ratio = i / denom
-                            idx = min(len(sampled_elevations) - 1, int(ratio * s_denom))
-                            full_elevations.append(sampled_elevations[idx])
+                            pos = (i / denom) * s_denom
+                            low_idx = int(pos)
+                            high_idx = min(len(sampled_elevations) - 1, low_idx + 1)
+                            frac = pos - low_idx
+                            ele = sampled_elevations[low_idx] * (1.0 - frac) + sampled_elevations[high_idx] * frac
+                            full_elevations.append(round(ele, 2))
                         return full_elevations
         except Exception:
             pass
 
-        # Topographical coastal/ghat undulating wave fallback
+        # Topographical undulating wave fallback
         elevations = []
+        denom = max(1, n - 1)
         for i, _ in enumerate(coordinates):
-            base = 15.0 + 55.0 * math.sin((i / max(1, n - 1)) * math.pi)
-            jitter = 4.0 * math.sin(i * 0.8)
+            ratio = i / denom
+            base = 25.0 + 45.0 * math.sin(ratio * math.pi)
+            jitter = 3.0 * math.sin(ratio * 12.0)
             elevations.append(round(max(2.0, base + jitter), 1))
         return elevations
 

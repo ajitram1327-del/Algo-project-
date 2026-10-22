@@ -317,43 +317,59 @@ class UniversalEVPhysicsEngine:
         cls, raw_points: List[Dict[str, float]], elevations: List[float], step_m: float = 250.0
     ) -> List[Dict[str, Any]]:
         """
-        Subdivides macro road coordinates into ~250m micro-segments.
-        Prevents 30 km step gradient dilution.
+        Regularizes and densifies road coordinates into uniform micro-segments.
+        Prevents micro-distance DEM gradient amplification and long-distance dilution.
         """
-        dense_points: List[Dict[str, Any]] = []
         n = len(raw_points)
         if n < 2:
             return raw_points
 
+        cum_dists = [0.0]
         for i in range(n - 1):
-            p1, p2 = raw_points[i], raw_points[i + 1]
-            e1, e2 = elevations[i], elevations[i + 1]
-            seg_dist = cls.haversine_m(p1["lat"], p1["lon"], p2["lat"], p2["lon"])
+            d = cls.haversine_m(
+                raw_points[i]["lat"], raw_points[i]["lon"],
+                raw_points[i + 1]["lat"], raw_points[i + 1]["lon"],
+            )
+            cum_dists.append(cum_dists[-1] + d)
 
-            if seg_dist <= step_m:
+        total_dist = cum_dists[-1]
+        if total_dist < 1.0:
+            return raw_points
+
+        num_steps = max(1, math.ceil(total_dist / step_m))
+        actual_step = total_dist / num_steps
+        dense_points: List[Dict[str, Any]] = []
+
+        raw_idx = 0
+        for s in range(num_steps + 1):
+            target_d = s * actual_step
+            if s == num_steps or target_d >= total_dist:
                 dense_points.append({
-                    "lat": p1["lat"],
-                    "lon": p1["lon"],
-                    "ele": e1,
-                    "step_dist_m": seg_dist,
+                    "lat": raw_points[-1]["lat"],
+                    "lon": raw_points[-1]["lon"],
+                    "ele": elevations[-1],
+                    "step_dist_m": actual_step if s > 0 else 0.0,
                 })
-            else:
-                num_subdivisions = math.ceil(seg_dist / step_m)
-                for s in range(num_subdivisions):
-                    frac = s / float(num_subdivisions)
-                    dense_points.append({
-                        "lat": p1["lat"] + (p2["lat"] - p1["lat"]) * frac,
-                        "lon": p1["lon"] + (p2["lon"] - p1["lon"]) * frac,
-                        "ele": e1 + (e2 - e1) * frac,
-                        "step_dist_m": seg_dist / num_subdivisions,
-                    })
+                break
 
-        dense_points.append({
-            "lat": raw_points[-1]["lat"],
-            "lon": raw_points[-1]["lon"],
-            "ele": elevations[-1],
-            "step_dist_m": 0.0,
-        })
+            while raw_idx < n - 1 and cum_dists[raw_idx + 1] < target_d:
+                raw_idx += 1
+
+            d0, d1 = cum_dists[raw_idx], cum_dists[raw_idx + 1]
+            seg_len = max(0.001, d1 - d0)
+            t = (target_d - d0) / seg_len
+
+            lat = raw_points[raw_idx]["lat"] + (raw_points[raw_idx + 1]["lat"] - raw_points[raw_idx]["lat"]) * t
+            lon = raw_points[raw_idx]["lon"] + (raw_points[raw_idx + 1]["lon"] - raw_points[raw_idx]["lon"]) * t
+            ele = elevations[raw_idx] + (elevations[raw_idx + 1] - elevations[raw_idx]) * t
+
+            dense_points.append({
+                "lat": lat,
+                "lon": lon,
+                "ele": round(ele, 2),
+                "step_dist_m": actual_step if s > 0 else 0.0,
+            })
+
         return dense_points
 
     def evaluate_route(
