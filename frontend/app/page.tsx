@@ -254,9 +254,6 @@ function RoutePlanner() {
               </span>
               <span className="route-brand-text">UnStranded</span>
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
-              Real-Time 3D Elevation & Dynamic Battery Telemetry
-            </p>
           </div>
 
           {/* Location Search Box */}
