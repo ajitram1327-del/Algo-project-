@@ -116,6 +116,11 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
         if orig_lat and orig_lon and dest_lat and dest_lon:
             # Step 1: Fetch real road geometries from OSRM
             coords_2d = await geo_service.fetch_route_geometry(orig_lat, orig_lon, dest_lat, dest_lon)
+            if len(coords_2d) < 2:
+                raise HTTPException(
+                    status_code=503,
+                    detail="A road route could not be retrieved. Please try again.",
+                )
 
             # Step 2: Fetch 3D elevations and candidate chargers in parallel along the whole corridor
             mid_lat = (orig_lat + dest_lat) / 2.0
@@ -136,17 +141,10 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
             coords_2d = [(p[0], p[1]) for p in coords_3d]
             candidate_chargers = await geo_service.fetch_chargers_along_corridor(coords_3d[0][0], coords_3d[0][1])
         else:
-            # Default fallback corridor: Manipal to Malpe
-            coords_3d = [
-                [13.3525, 74.7865, 82.0],
-                [13.3510, 74.7780, 72.0],
-                [13.3500, 74.7700, 34.0],
-                [13.3480, 74.7650, 28.0],
-                [13.3440, 74.7500, 22.0],
-                [13.3540, 74.7003, 3.0],
-            ]
-            coords_2d = [(p[0], p[1]) for p in coords_3d]
-            candidate_chargers = await geo_service.fetch_chargers_along_corridor(13.3525, 74.7865)
+            raise HTTPException(
+                status_code=422,
+                detail="Choose an origin and destination before calculating a route.",
+            )
 
         # Step 4: Run continuous multi-force physics & RCSP constraint solver
         engine = UniversalEVPhysicsEngine(
@@ -187,8 +185,10 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
 
         return response
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/route/briefing")

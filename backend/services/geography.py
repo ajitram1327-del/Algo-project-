@@ -70,14 +70,8 @@ class GeographyService:
         except Exception:
             pass
 
-        # Deterministic 10-point interpolation fallback
-        return [
-            (
-                origin_lat + (dest_lat - origin_lat) * (i / 9.0),
-                origin_lon + (dest_lon - origin_lon) * (i / 9.0),
-            )
-            for i in range(10)
-        ]
+        # Don't substitute a straight line for a road route.
+        return []
 
     async def fetch_elevation_profile(
         self, coordinates: List[Tuple[float, float]]

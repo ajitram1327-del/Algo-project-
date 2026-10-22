@@ -63,6 +63,8 @@ export interface RouteSummary {
   charging_stops?: ChargingPlanStop[];
   telemetry_profile: TelemetryPoint[];
   route_coordinates?: [number, number][];
+  available_chargers?: OcmCharger[];
+  driver_briefing?: string;
 }
 
 export const fetchVehicles = async (): Promise<Vehicle[]> => {

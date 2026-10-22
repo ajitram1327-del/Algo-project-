@@ -4,30 +4,34 @@ import React, { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { ChargingStop } from "@/lib/api";
+import RouteJourneyAnimation from "./RouteJourneyAnimation";
 
 interface MapProps {
   coordinates?: [number, number][]; // GeoJSON format: [longitude, latitude]
   chargingStops?: any[];
-  availableStations?: any[];
   originName?: string;
   destinationName?: string;
   originCoords?: [number, number]; // [lng, lat]
   destinationCoords?: [number, number]; // [lng, lat]
+  journeyRunId?: number;
 }
 
-const DEFAULT_CORRIDOR_COORDS: [number, number][] = [
-  [74.7865, 13.3525],
-  [74.7780, 13.3510],
-  [74.7650, 13.3480],
-  [74.7500, 13.3440],
-  [74.7320, 13.3460],
-  [74.7150, 13.3490],
-  [74.7003, 13.3540],
-];
-
-// Controller to smoothly fit map bounds to route geometry
+// Controller to smoothly fit map bounds to route geometry and auto-resize with layout changes
 function MapBoundsController({ positions }: { positions: [number, number][] }) {
   const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    if (!container) return;
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [map]);
 
   useEffect(() => {
     if (!positions || positions.length < 2) return;
@@ -45,15 +49,16 @@ function MapBoundsController({ positions }: { positions: [number, number][] }) {
 export default function RouteMap({
   coordinates,
   chargingStops = [],
-  availableStations = [],
   originName = "Manipal",
   destinationName = "Malpe Beach",
   originCoords,
   destinationCoords,
+  journeyRunId = 0,
 }: MapProps) {
-  const activeCoordinates = useMemo(() => {
-    return (coordinates && coordinates.length >= 2) ? coordinates : DEFAULT_CORRIDOR_COORDS;
-  }, [coordinates]);
+  const activeCoordinates = useMemo(
+    () => (coordinates && coordinates.length >= 2 ? coordinates : []),
+    [coordinates]
+  );
 
   // Convert GeoJSON [lng, lat] coordinates to Leaflet [lat, lng] positions
   const polylinePositions = useMemo<[number, number][]>(() => {
@@ -62,9 +67,12 @@ export default function RouteMap({
       .map(([lng, lat]) => [lat, lng] as [number, number]);
   }, [activeCoordinates]);
 
-  // Fallback center near Manipal if no coordinates provided
+  // Fallback center near origin or destination or Manipal if no coordinates provided
   const centerPosition: [number, number] =
-    polylinePositions.length > 0 ? polylinePositions[0] : [13.3409, 74.7858];
+    polylinePositions[0] ??
+    (originCoords
+      ? [originCoords[1], originCoords[0]]
+      : [13.3409, 74.7858]);
 
   // Custom marker icons
   const originIcon = useMemo(
@@ -97,13 +105,13 @@ export default function RouteMap({
     []
   );
 
-  // Recommended charger icon (Active amber pulse)
+  // Recommended charger icon
   const recommendedChargerIcon = useMemo(
     () =>
       L.divIcon({
         className: "charger-marker-recommended",
         html: `
-          <div style="background-color: #f59e0b; color: #0f172a; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; box-shadow: 0 0 16px rgba(245,158,11,0.9); border: 2.5px solid #ffffff; animation: pulse 1.5s infinite;">
+          <div style="background-color: #f59e0b; color: #0f172a; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; box-shadow: 0 0 16px rgba(245,158,11,0.9); border: 2.5px solid #ffffff;">
             ⚡
           </div>
         `,
@@ -129,34 +137,23 @@ export default function RouteMap({
     []
   );
 
-  // Merge stations: give priority to recommended stops if they have dynamic arrival SoC
-  const stationsToDisplay = useMemo(() => {
-    const map = new Map<string, { station: ChargingStop; isRecommended: boolean }>();
-
-    // Add all corridor stations first as standby
-    for (const st of availableStations) {
-      map.set(st.id, { station: st, isRecommended: false });
-    }
-
-    // Overlay any recommended stops (with active arrival SoC telemetry)
-    for (const st of chargingStops) {
-      const id = st.id || st.station_id || `stop-${Math.random()}`;
-      map.set(id, {
+  const stationsToDisplay = useMemo(
+    () =>
+      chargingStops.map((stop, index) => ({
         station: {
-          ...st,
-          id,
-          lat: st.lat !== undefined ? st.lat : (st.coordinates ? st.coordinates[1] : undefined),
-          lon: st.lon !== undefined ? st.lon : (st.coordinates ? st.coordinates[0] : undefined),
-          arrival_soc: st.arrival_soc_percent ?? st.arrival_soc,
-          departure_soc: st.target_soc_percent ?? st.departure_soc,
-          charge_time_min: st.charging_time_minutes ?? st.charge_time_min,
+          ...stop,
+          id: String(stop.id ?? stop.station_id ?? `planned-stop-${index}`),
+          lat: stop.lat ?? stop.coordinates?.[1],
+          lon: stop.lon ?? stop.coordinates?.[0],
+          arrival_soc: stop.arrival_soc_percent ?? stop.arrival_soc,
+          departure_soc: stop.target_soc_percent ?? stop.departure_soc,
+          charge_time_min:
+            stop.charging_time_minutes ?? stop.charge_time_min,
         },
         isRecommended: true,
-      });
-    }
-
-    return Array.from(map.values());
-  }, [availableStations, chargingStops]);
+      })),
+    [chargingStops]
+  );
 
   // Derive origin & dest marker positions in [lat, lng]
   const originMarkerPos: [number, number] | null = useMemo(() => {
@@ -166,7 +163,7 @@ export default function RouteMap({
     if (polylinePositions.length > 0) {
       return polylinePositions[0];
     }
-    return [13.3409, 74.7858];
+    return null;
   }, [originCoords, polylinePositions]);
 
   const destMarkerPos: [number, number] | null = useMemo(() => {
@@ -176,7 +173,7 @@ export default function RouteMap({
     if (polylinePositions.length > 0) {
       return polylinePositions[polylinePositions.length - 1];
     }
-    return [13.349, 74.7003];
+    return null;
   }, [destinationCoords, polylinePositions]);
 
   return (
@@ -210,6 +207,16 @@ export default function RouteMap({
             }}
           />
         )}
+
+        {coordinates &&
+          coordinates.length >= 2 &&
+          polylinePositions.length >= 2 && (
+            <RouteJourneyAnimation
+              positions={polylinePositions}
+              chargingStops={chargingStops}
+              journeyRunId={journeyRunId}
+            />
+          )}
 
         {/* Origin Marker */}
         {originMarkerPos && (
@@ -245,7 +252,7 @@ export default function RouteMap({
           </Marker>
         )}
 
-        {/* Charging Station Points (Corridor Network & Recommended Stops) */}
+        {/* Charging Station Points (Physics-Planned Stops) */}
         {stationsToDisplay.map(({ station: stop, isRecommended }) => {
           const lng = stop.coordinates ? stop.coordinates[0] : (stop.lon ?? stop.lng);
           const lat = stop.coordinates ? stop.coordinates[1] : stop.lat;
