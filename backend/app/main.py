@@ -7,7 +7,7 @@ and decoupled async CrewAI driver briefings.
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any, Tuple
 import uvicorn
 from dotenv import load_dotenv
 
@@ -19,14 +19,24 @@ try:
     from backend.services.openchargemap import fetch_ocm_chargers
     from backend.services.valhalla import check_valhalla_status, get_valhalla_route_3d
     from backend.services.overpass import find_nearby_chargers
-    from backend.services.geocoding import search_locations, get_osrm_route
+    from backend.services.geocoding import (
+        search_locations,
+        get_osrm_route,
+        get_osrm_route_2d,
+        fetch_elevations_for_route,
+    )
 except ImportError:
     from app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from services.ai_agent import generate_driver_briefing
     from services.openchargemap import fetch_ocm_chargers
     from services.valhalla import check_valhalla_status, get_valhalla_route_3d
     from services.overpass import find_nearby_chargers
-    from services.geocoding import search_locations, get_osrm_route
+    from services.geocoding import (
+        search_locations,
+        get_osrm_route,
+        get_osrm_route_2d,
+        fetch_elevations_for_route,
+    )
 
 app = FastAPI(title="Physics-Aware EV Route Engine", version="2.0")
 
@@ -56,6 +66,7 @@ class RouteRequest(BaseModel):
     passengers: int = 2
     ambient_temp_c: float = 32.0
     initial_soc_percent: float = 25.0
+    starting_soc: Optional[float] = None
     coordinates: Optional[List[List[float]]] = None
     coord_order: str = "lat_lon_ele"
     use_valhalla: bool = False
@@ -63,6 +74,8 @@ class RouteRequest(BaseModel):
     origin_lon: Optional[float] = None
     dest_lat: Optional[float] = None
     dest_lon: Optional[float] = None
+    origin: Optional[Any] = None
+    destination: Optional[Any] = None
 
 
 class BriefingRequest(BaseModel):
@@ -173,26 +186,54 @@ async def geocode_query(q: str):
 @app.post("/api/route/evaluate", response_model=RoutePhysicsSummary)
 async def evaluate_route(req: RouteRequest):
     coords = req.coordinates
-    if req.origin_lat and req.origin_lon and req.dest_lat and req.dest_lon:
-        # First attempt high-resolution 3D routing from local Valhalla
+    
+    # Resolve starting SoC
+    soc_start = req.starting_soc if req.starting_soc is not None else req.initial_soc_percent
+
+    # Resolve origin & dest coordinates from either direct floats or origin/destination objects
+    orig_lat, orig_lon = req.origin_lat, req.origin_lon
+    dest_lat, dest_lon = req.dest_lat, req.dest_lon
+
+    if isinstance(req.origin, (list, tuple)) and len(req.origin) >= 2:
+        orig_lat, orig_lon = float(req.origin[0]), float(req.origin[1])
+    elif isinstance(req.origin, dict):
+        orig_lat = float(req.origin.get("lat") or req.origin.get("latitude") or 0.0)
+        orig_lon = float(req.origin.get("lon") or req.origin.get("longitude") or 0.0)
+
+    if isinstance(req.destination, (list, tuple)) and len(req.destination) >= 2:
+        dest_lat, dest_lon = float(req.destination[0]), float(req.destination[1])
+    elif isinstance(req.destination, dict):
+        dest_lat = float(req.destination.get("lat") or req.destination.get("latitude") or 0.0)
+        dest_lon = float(req.destination.get("lon") or req.destination.get("longitude") or 0.0)
+
+    if orig_lat and orig_lon and dest_lat and dest_lon:
+        # 1. Attempt high-resolution 3D routing from local Valhalla if active
         valhalla_coords = await get_valhalla_route_3d(
-            origin_lat=req.origin_lat,
-            origin_lon=req.origin_lon,
-            dest_lat=req.dest_lat,
-            dest_lon=req.dest_lon,
+            origin_lat=orig_lat,
+            origin_lon=orig_lon,
+            dest_lat=dest_lat,
+            dest_lon=dest_lon,
         )
         if valhalla_coords and len(valhalla_coords) >= 2:
             coords = valhalla_coords
         else:
-            # Fall back to live OSRM routing
-            osrm_coords = await get_osrm_route(
-                origin_lat=req.origin_lat,
-                origin_lon=req.origin_lon,
-                dest_lat=req.dest_lat,
-                dest_lon=req.dest_lon,
-            )
-            if osrm_coords and len(osrm_coords) >= 2:
-                coords = osrm_coords
+            # 2. Get 2D road geometry from OSRM: [(lat1, lon1), (lat2, lon2), ...]
+            coords_2d = await get_osrm_route_2d(orig_lat, orig_lon, dest_lat, dest_lon)
+            
+            # Sub-sample raw OSRM steps if very long (batch limit safety)
+            step = max(1, len(coords_2d) // 45)
+            sampled_2d = coords_2d[::step]
+            if sampled_2d[-1] != coords_2d[-1]:
+                sampled_2d.append(coords_2d[-1])
+
+            # 3. Get elevations via Open Elevation API (with graceful fallback)
+            elevations = await fetch_elevations_for_route(sampled_2d)
+
+            # 4. Combine into 3D coordinates: [[lat, lon, ele], ...]
+            coords = [
+                [lat, lon, ele]
+                for (lat, lon), ele in zip(sampled_2d, elevations)
+            ]
 
     if not coords or len(coords) < 2:
         coords = SAMPLE_ROUTE_COORDINATES
@@ -205,8 +246,8 @@ async def evaluate_route(req: RouteRequest):
         )
         
         # Discover chargers along the corridor for intelligent recharge planning
-        ref_lat = req.origin_lat or coords[0][0]
-        ref_lon = req.origin_lon or coords[0][1]
+        ref_lat = orig_lat or coords[0][0]
+        ref_lon = orig_lon or coords[0][1]
         try:
             chargers = await fetch_ocm_chargers(lat=ref_lat, lon=ref_lon, distance_km=50.0)
         except Exception:
@@ -215,7 +256,7 @@ async def evaluate_route(req: RouteRequest):
         summary = engine.evaluate_route(
             coordinates_3d=coords,
             coord_order=req.coord_order,
-            initial_soc_percent=req.initial_soc_percent,
+            initial_soc_percent=soc_start,
             available_chargers=chargers,
         )
         return summary
