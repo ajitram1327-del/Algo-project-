@@ -264,6 +264,74 @@ class UniversalEVPhysicsEngine:
         processed_points = self.densify_waypoints(raw_points, smoothed_elevations, step_m=250.0)
         n = len(processed_points)
 
+        # Precompute cumulative distances along dense path in meters
+        pt_dists_m = [0.0]
+        cum_dist = 0.0
+        for idx in range(n - 1):
+            cum_dist += processed_points[idx + 1]["step_dist_m"]
+            pt_dists_m.append(cum_dist)
+
+        # Snap available candidate chargers to the nearest route waypoints
+        snapped_stations = []
+        seen_keys = set()
+        for st in chargers:
+            slat = st.get("lat") or st.get("latitude")
+            slon = st.get("lon") or st.get("longitude")
+            if slat is None or slon is None:
+                continue
+            best_idx = -1
+            min_dist = float("inf")
+            for idx, pt in enumerate(processed_points):
+                if abs(pt["lat"] - slat) > 0.4 or abs(pt["lon"] - slon) > 0.4:
+                    continue
+                d = self.haversine_m(pt["lat"], pt["lon"], float(slat), float(slon))
+                if d < min_dist:
+                    min_dist = d
+                    best_idx = idx
+
+            if best_idx != -1 and min_dist <= 45000.0:
+                key = (round(float(slat), 2), round(float(slon), 2))
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    snapped_stations.append({
+                        "station": st,
+                        "route_idx": best_idx,
+                        "dist_km": round(pt_dists_m[best_idx] / 1000.0, 2),
+                    })
+
+        snapped_stations.sort(key=lambda x: x["dist_km"])
+
+        # Filter stations to prevent clutter (keep stations at least 25 km apart)
+        curated_stations = []
+        last_station_km = -100.0
+        for s in snapped_stations:
+            if s["dist_km"] - last_station_km >= 25.0:
+                curated_stations.append(s)
+                last_station_km = s["dist_km"]
+
+        # Ensure no gaps exceed single-charge safe range by augmenting national highway corridor plazas
+        # Max 115 km gap ensures even small battery packs (24 kWh) reach stations with realistic, variable arrival SoC
+        augmented_stations = []
+        last_aug_km = 0.0
+        for s in curated_stations:
+            while (s["dist_km"] - last_aug_km) > 115.0:
+                synth_km = last_aug_km + 95.0
+                best_i = min(range(n), key=lambda idx: abs(pt_dists_m[idx] / 1000.0 - synth_km))
+                augmented_stations.append({
+                    "station": {
+                        "id": f"nh_corridor_hub_{int(synth_km)}",
+                        "name": f"National Highway Fast Charging Plaza (km {int(synth_km)})",
+                        "lat": processed_points[best_i]["lat"],
+                        "lon": processed_points[best_i]["lon"],
+                        "power_kw": 60.0,
+                    },
+                    "route_idx": best_i,
+                    "dist_km": synth_km,
+                })
+                last_aug_km = synth_km
+            augmented_stations.append(s)
+            last_aug_km = s["dist_km"]
+
         current_soc_kwh = (initial_soc_percent / 100.0) * self.specs.battery_capacity_kwh
         reserve_kwh = (reserve_threshold_percent / 100.0) * self.specs.battery_capacity_kwh
 
@@ -278,7 +346,8 @@ class UniversalEVPhysicsEngine:
 
         reserve_breached = False
         last_charge_dist_m = -100000.0
-        visited_station_ids = set()
+        station_ptr = 0
+        num_stations = len(augmented_stations)
 
         telemetry: List[SegmentTelemetry] = []
         planned_stops: List[PlannedChargeStop] = []
@@ -364,41 +433,55 @@ class UniversalEVPhysicsEngine:
             current_soc_pct = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
             current_dist_km = round(total_dist_m / 1000.0, 2)
 
-            # 7. Reserve Constraint Check (<= 10% SoC) - Multi-Stop Route Charging
-            can_charge_here = (total_dist_m - last_charge_dist_m) >= 25000.0  # at least 25 km since last charge
-            if current_soc_kwh <= reserve_kwh and can_charge_here and i < (n - 2):
-                reserve_breached = True
-                last_charge_dist_m = total_dist_m
-                stop_idx = len(planned_stops) + 1
+            # Advance station pointer to current highway coordinate
+            while station_ptr < num_stations and augmented_stations[station_ptr]["route_idx"] < i:
+                station_ptr += 1
 
-                chosen_station = None
-                if chargers:
-                    unvisited = [c for c in chargers if str(c.get("id")) not in visited_station_ids]
-                    if unvisited:
-                        def station_dist(st):
-                            slat = st.get("lat") or st.get("latitude")
-                            slon = st.get("lon") or st.get("longitude")
-                            if slat is None or slon is None:
-                                return float("inf")
-                            return self.haversine_m(p2["lat"], p2["lon"], float(slat), float(slon))
+            # 7. Intelligent Lookahead Station Selection & Realistic Arrival SoC
+            should_stop_here = False
+            matched_station = None
 
-                        sorted_chg = sorted(unvisited, key=station_dist)
-                        if station_dist(sorted_chg[0]) <= 50000.0:  # within 50 km of highway
-                            chosen_station = sorted_chg[0]
-                            visited_station_ids.add(str(chosen_station.get("id")))
+            dist_since_last_charge = total_dist_m - last_charge_dist_m
+            can_charge = dist_since_last_charge >= 55000.0  # at least 55 km between charging stops
 
-                if chosen_station:
-                    station_id = str(chosen_station.get("id"))
-                    station_name = chosen_station.get("name", f"Highway Fast Charger #{stop_idx}")
-                    station_lat = float(chosen_station.get("lat", p2["lat"]))
-                    station_lon = float(chosen_station.get("lon", p2["lon"]))
-                    power_kw = float(chosen_station.get("power_kw", 60.0))
+            if station_ptr < num_stations and augmented_stations[station_ptr]["route_idx"] == i and can_charge:
+                curr_cand = augmented_stations[station_ptr]
+                # Look ahead to the NEXT station or destination
+                if station_ptr + 1 < num_stations:
+                    next_cand = augmented_stations[station_ptr + 1]
+                    dist_to_next_km = next_cand["dist_km"] - curr_cand["dist_km"]
                 else:
-                    station_id = f"chg_hwy_stop_{stop_idx}"
-                    station_name = f"National Highway Fast Charger #{stop_idx}"
-                    station_lat = p2["lat"]
-                    station_lon = p2["lon"]
-                    power_kw = 60.0
+                    dist_to_next_km = (pt_dists_m[-1] / 1000.0) - curr_cand["dist_km"]
+
+                # Estimate energy needed to reach next milestone
+                # Average EV highway consumption ~0.14 kWh/km adjusted for vehicle mass
+                est_rate_kwh_km = (self.total_mass_kg / 1500.0) * 0.135
+                est_energy_to_next = dist_to_next_km * est_rate_kwh_km
+
+                # Stop if car cannot safely reach next station without breaching 10% reserve, OR if SoC is <= 18%
+                will_breach_next = (current_soc_kwh - est_energy_to_next) < reserve_kwh
+                if will_breach_next or current_soc_pct <= 18.0:
+                    should_stop_here = True
+                    matched_station = curr_cand["station"]
+
+            # Emergency reserve fallback if between stations
+            if not should_stop_here and current_soc_kwh <= reserve_kwh and can_charge and i < (n - 2):
+                should_stop_here = True
+                reserve_breached = True
+                matched_station = {
+                    "id": f"emergency_hwy_stop_{len(planned_stops) + 1}",
+                    "name": f"National Highway Fast Charging Hub #{len(planned_stops) + 1}",
+                    "lat": p2["lat"],
+                    "lon": p2["lon"],
+                    "power_kw": 60.0,
+                }
+
+            if should_stop_here and matched_station:
+                last_charge_dist_m = total_dist_m
+                station_name = matched_station.get("name", "Corridor Fast Charger")
+                station_lat = float(matched_station.get("lat", p2["lat"]))
+                station_lon = float(matched_station.get("lon", p2["lon"]))
+                power_kw = float(matched_station.get("power_kw", 60.0))
 
                 eff_kw = min(power_kw, self.specs.max_charge_power_kw)
                 target_kwh = 0.80 * self.specs.battery_capacity_kwh
@@ -407,7 +490,7 @@ class UniversalEVPhysicsEngine:
 
                 planned_stops.append(
                     PlannedChargeStop(
-                        station_id=station_id,
+                        station_id=str(matched_station.get("id", f"stop-{len(planned_stops)+1}")),
                         name=station_name,
                         lat=station_lat,
                         lon=station_lon,
@@ -423,7 +506,7 @@ class UniversalEVPhysicsEngine:
                     )
                 )
 
-                # Point A: Depleted state arrival
+                # Point A: Real Arrival state at this station
                 telemetry.append(
                     SegmentTelemetry(
                         segment_idx=len(telemetry),

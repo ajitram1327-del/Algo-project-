@@ -180,11 +180,11 @@ export default function RouteMap({
   }, [destinationCoords, polylinePositions]);
 
   return (
-    <div className="relative w-full h-full min-h-[460px] rounded-2xl overflow-hidden border border-slate-700/60 shadow-2xl">
+    <div className="route-map-frame">
       <MapContainer
         center={centerPosition}
         zoom={13}
-        scrollWheelZoom={true}
+        scrollWheelZoom={false}
         className="w-full h-full"
       >
         <TileLayer
@@ -199,30 +199,16 @@ export default function RouteMap({
 
         {/* Route Polyline */}
         {polylinePositions.length >= 2 && (
-          <>
-            {/* Outer glowing halo */}
-            <Polyline
-              positions={polylinePositions}
-              pathOptions={{
-                color: "#38bdf8",
-                weight: 8,
-                opacity: 0.4,
-                lineCap: "round",
-                lineJoin: "round",
-              }}
-            />
-            {/* Core route line */}
-            <Polyline
-              positions={polylinePositions}
-              pathOptions={{
-                color: "#2563eb",
-                weight: 4.5,
-                opacity: 0.95,
-                lineCap: "round",
-                lineJoin: "round",
-              }}
-            />
-          </>
+          <Polyline
+            positions={polylinePositions}
+            pathOptions={{
+              color: "#087f5b",
+              weight: 5,
+              opacity: 0.92,
+              lineCap: "round",
+              lineJoin: "round",
+            }}
+          />
         )}
 
         {/* Origin Marker */}

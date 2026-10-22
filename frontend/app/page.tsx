@@ -218,10 +218,10 @@ export default function RouteDashboard() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans">
+    <div className="route-app">
       {/* LEFT: Controls & Analytics Sidebar */}
-      <aside className="w-[440px] h-full flex flex-col border-r border-slate-800 bg-slate-900/90 p-5 overflow-y-auto space-y-4">
-        <div>
+      <aside className="route-sidebar">
+        <div className="route-brand">
           <h1 className="text-xl font-bold tracking-tight text-emerald-400 flex items-center gap-2">
             <Zap className="h-5 w-5 text-emerald-400" />
             EV Physics Route Planner
@@ -232,14 +232,14 @@ export default function RouteDashboard() {
         </div>
 
         {/* Location Search Box */}
-        <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/70 space-y-2.5">
-          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <div className="route-card route-route-card">
+          <div className="route-section-title">
             <span className="flex items-center gap-1.5 text-sky-400">
               <Navigation className="h-3.5 w-3.5" /> Route Navigation
             </span>
             <button
               onClick={swapLocations}
-              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-emerald-400 transition"
+              className="route-swap"
               title="Swap origin and destination"
             >
               <ArrowUpDown className="h-3 w-3" /> Swap
@@ -248,7 +248,7 @@ export default function RouteDashboard() {
 
           {/* Origin Input */}
           <div className="relative">
-            <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-700 rounded-lg px-2.5 py-1.5 focus-within:border-emerald-500 transition">
+            <div className="route-input">
               <MapPin className="h-4 w-4 text-emerald-400 shrink-0" />
               <input
                 type="text"
@@ -281,7 +281,7 @@ export default function RouteDashboard() {
 
           {/* Destination Input */}
           <div className="relative">
-            <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-700 rounded-lg px-2.5 py-1.5 focus-within:border-blue-500 transition">
+            <div className="route-input">
               <MapPin className="h-4 w-4 text-blue-400 shrink-0" />
               <input
                 type="text"
@@ -314,7 +314,7 @@ export default function RouteDashboard() {
         </div>
 
         {/* Vehicle & Environmental Inputs */}
-        <div className="space-y-3.5 bg-slate-800/40 p-4 rounded-xl border border-slate-800">
+        <div className="route-card route-settings">
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Vehicle Model
@@ -322,7 +322,7 @@ export default function RouteDashboard() {
             <select
               value={selectedVehicle}
               onChange={(e) => setSelectedVehicle(e.target.value)}
-              className="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
+              className="route-select"
             >
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>
@@ -345,7 +345,7 @@ export default function RouteDashboard() {
               max="5"
               value={passengers}
               onChange={(e) => setPassengers(Number(e.target.value))}
-              className="w-full accent-emerald-500 mt-1"
+              className="route-range"
             />
           </div>
 
@@ -362,7 +362,7 @@ export default function RouteDashboard() {
               max="45"
               value={tempC}
               onChange={(e) => setTempC(Number(e.target.value))}
-              className="w-full accent-emerald-500 mt-1"
+              className="route-range"
             />
           </div>
 
@@ -379,14 +379,14 @@ export default function RouteDashboard() {
               max="100"
               value={initialSoc}
               onChange={(e) => setInitialSoc(Number(e.target.value))}
-              className="w-full accent-emerald-500 mt-1"
+              className="route-range"
             />
           </div>
 
           <button
             onClick={handleCalculate}
             disabled={loading}
-            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg text-sm transition duration-150 disabled:opacity-50 shadow-lg shadow-emerald-950/40"
+            className="route-primary-action"
           >
             {loading ? 'Evaluating Forces...' : 'Simulate Route Physics'}
           </button>
@@ -394,56 +394,56 @@ export default function RouteDashboard() {
 
         {/* Telemetry KPI Cards */}
         {summary && (
-          <div className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <div className="route-results">
+            <h2 className="route-section-heading">
               Telemetry & Physics Output
             </h2>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
-                <span className="text-[11px] text-slate-400 block">Total Distance</span>
-                <span className="text-base font-bold text-slate-100">
+            <div className="grid grid-cols-2 gap-2 route-metrics-grid">
+              <div className="route-metric">
+                <span className="metric-label">Total Distance</span>
+                <span className="metric-value">
                   {summary.total_distance_km} km
                 </span>
               </div>
-              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
-                <span className="text-[11px] text-slate-400 block">Net Energy</span>
-                <span className="text-base font-bold text-emerald-400">
+              <div className="route-metric">
+                <span className="metric-label">Net Energy</span>
+                <span className="metric-value">
                   {summary.net_energy_kwh} kWh
                 </span>
               </div>
-              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
-                <span className="text-[11px] text-slate-400 block">Final Battery SoC</span>
+              <div className="route-metric">
+                <span className="metric-label">Final Battery SoC</span>
                 <span
-                  className={`text-base font-bold ${
+                  className={`metric-value ${
                     summary.reserve_breached ? 'text-rose-400' : 'text-emerald-400'
                   }`}
                 >
                   {summary.final_soc_percent}%
                 </span>
               </div>
-              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
-                <span className="text-[11px] text-slate-400 block">Max Gradient</span>
-                <span className="text-base font-bold text-amber-400">
+              <div className="route-metric">
+                <span className="metric-label">Max Gradient</span>
+                <span className="metric-value">
                   {summary.max_gradient_percent}%
                 </span>
               </div>
-              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
-                <span className="text-[11px] text-slate-400 block">Climb / Descent</span>
-                <span className="text-xs font-bold text-slate-200">
+              <div className="route-metric">
+                <span className="metric-label">Climb / Descent</span>
+                <span className="metric-value">
                   +{summary.total_climb_m}m / -{summary.total_descent_m}m
                 </span>
               </div>
-              <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700/60">
-                <span className="text-[11px] text-slate-400 block">Energy Regenerated</span>
-                <span className="text-base font-bold text-cyan-400">
+              <div className="route-metric">
+                <span className="metric-label">Energy Regenerated</span>
+                <span className="metric-value">
                   {summary.gross_regenerated_kwh} kWh
                 </span>
               </div>
             </div>
 
             {summary.charging_stops && summary.charging_stops.length > 0 && (
-              <div className="p-3.5 bg-amber-950/30 border border-amber-500/40 rounded-xl space-y-2">
+              <div className="route-card route-charging">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
                     <BatteryCharging className="h-4 w-4" /> Planned Charging Stops ({summary.charging_stops.length})
@@ -454,7 +454,7 @@ export default function RouteDashboard() {
                 </div>
                 <div className="space-y-2">
                   {summary.charging_stops.map((stop, idx) => (
-                    <div key={idx} className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-700/80 text-xs space-y-1">
+                    <div key={idx} className="route-stop">
                       <div className="flex justify-between items-center">
                         <span className="font-semibold text-slate-100 flex items-center gap-1 truncate max-w-[240px]">
                           ⚡ {stop.name}
@@ -476,7 +476,7 @@ export default function RouteDashboard() {
             )}
 
             {summary.is_unreachable && (
-              <div className="p-3 bg-rose-950/70 border border-rose-600 rounded-lg text-xs text-rose-200 flex items-center gap-2">
+              <div className="route-alert">
                 <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
                 <span>
                   Route exceeds vehicle range! No reachable charging stations were found along this corridor before 0% battery.
@@ -485,7 +485,7 @@ export default function RouteDashboard() {
             )}
 
             {summary.reserve_breached && !summary.is_unreachable && (
-              <div className="p-3 bg-rose-950/60 border border-rose-700/50 rounded-lg text-xs text-rose-200 flex items-center gap-2">
+              <div className="route-alert">
                 <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0" />
                 <span>
                   Reserve breached! Battery fell below 10% safety margin. Please recharge at nearest stop.
@@ -494,7 +494,7 @@ export default function RouteDashboard() {
             )}
 
             {/* CrewAI Logistics Briefing */}
-            <div className="bg-slate-900 border border-slate-700 rounded-xl p-3.5 space-y-1.5">
+            <div className="route-card route-briefing">
               <div className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
                 <Wind className="h-3.5 w-3.5" /> Fleet AI Logistics Briefing
               </div>
@@ -511,8 +511,8 @@ export default function RouteDashboard() {
       </aside>
 
       {/* RIGHT: Map & Dual-Axis Telemetry Curve */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950">
-        <div className="flex-1 w-full relative">
+      <main className="route-workspace">
+        <div className="map-stage">
           <MapComponent
             availableStations={chargers}
             chargingStops={summary?.charging_stops || []}
@@ -526,8 +526,8 @@ export default function RouteDashboard() {
 
         {/* Elevation vs SoC Dual Area Chart */}
         {summary && summary.telemetry_profile.length > 0 && (
-          <div className="h-56 bg-slate-900 border-t border-slate-800 p-3 flex flex-col">
-            <div className="text-xs font-semibold text-slate-400 mb-1 flex justify-between">
+          <div className="route-chart">
+            <div className="route-chart-header">
               <span>Road Elevation (m) vs. Dynamic Battery State of Charge (%)</span>
               <span className="text-emerald-400 text-[11px]">Synchronized Gradient Profile</span>
             </div>
