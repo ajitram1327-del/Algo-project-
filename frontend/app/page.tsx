@@ -95,7 +95,8 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
 
   // Vehicle & Route Parameters
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [selectedVehicle, setSelectedVehicle] = useState<string>('tata_nexon_ev');
+  const [selectedCarModel, setSelectedCarModel] = useState<string>('Tata Nexon EV');
+  const [selectedVehicle, setSelectedVehicle] = useState<string>('nexon_ev_lr');
   const [passengers, setPassengers] = useState<number>(2);
   const [tempC, setTempC] = useState<number>(34);
   const [initialSoc, setInitialSoc] = useState<number>(25);
@@ -182,10 +183,48 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
     fetchVehicles()
       .then((data) => {
         setVehicles(data);
-        if (data.length > 0) setSelectedVehicle(data[1]?.id ?? data[0]?.id);
+        if (data.length > 0) {
+          const defaultCar =
+            data.find((v) => (v.model_name || v.name).includes('Nexon')) || data[0];
+          const model = defaultCar.model_name || defaultCar.name.split(' (')[0];
+          setSelectedCarModel(model);
+          setSelectedVehicle(defaultCar.id);
+        }
       })
       .catch((err) => console.error('Failed to load vehicles', err));
   }, []);
+
+  // Distinct car models list (step 1)
+  const uniqueCarModels = useMemo(() => {
+    const set = new Set<string>();
+    vehicles.forEach((v) => {
+      const model = v.model_name || v.name.split(' (')[0];
+      if (model) set.add(model);
+    });
+    return Array.from(set);
+  }, [vehicles]);
+
+  // Trims available for currently selected car model (step 2)
+  const availableTrims = useMemo(() => {
+    return vehicles.filter((v) => {
+      const model = v.model_name || v.name.split(' (')[0];
+      return model.toLowerCase() === selectedCarModel.toLowerCase();
+    });
+  }, [vehicles, selectedCarModel]);
+
+  const handleCarModelChange = (modelName: string) => {
+    setSelectedCarModel(modelName);
+    const matching = vehicles.filter((v) => {
+      const model = v.model_name || v.name.split(' (')[0];
+      return model.toLowerCase() === modelName.toLowerCase();
+    });
+    if (matching.length > 0) {
+      const preferred =
+        matching.find((t) => (t.trim_name || t.name).toLowerCase().includes('long range')) ||
+        matching[0];
+      setSelectedVehicle(preferred.id);
+    }
+  };
 
   // Debounced search for Origin
   const handleOriginChange = (text: string) => {
@@ -599,23 +638,55 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
 
             {/* Vehicle & Battery Controls */}
             <div className="space-y-2.5 bg-slate-50/60 p-3 rounded-xl border border-slate-200/70 text-xs">
-              {/* Vehicle Selection */}
+              {/* Step 1: Car Selection */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1 uppercase tracking-wide">
-                  EV Model
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1 uppercase tracking-wide flex items-center justify-between">
+                  <span>Car Model</span>
+                  <span className="text-[10px] text-slate-400 font-normal">Choose Vehicle</span>
                 </label>
                 <select
-                  value={selectedVehicle}
-                  onChange={(e) => setSelectedVehicle(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+                  value={selectedCarModel}
+                  onChange={(e) => handleCarModelChange(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                 >
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name} ({v.battery_capacity_kwh ?? v.battery_kwh} kWh)
+                  {uniqueCarModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
                     </option>
                   ))}
                 </select>
               </div>
+
+              {/* Step 2: Trim / Battery Variant Dropdown */}
+              {availableTrims.length > 0 && (
+                <div className="animate-in fade-in duration-150">
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1 uppercase tracking-wide flex items-center justify-between">
+                    <span>Trim / Battery Variant</span>
+                    <span className="text-[10px] text-blue-600 font-semibold">
+                      {availableTrims.length} {availableTrims.length === 1 ? 'option' : 'options'}
+                    </span>
+                  </label>
+                  <select
+                    value={selectedVehicle}
+                    onChange={(e) => setSelectedVehicle(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
+                  >
+                    {availableTrims.map((t) => {
+                      const trimLabel =
+                        t.trim_name ||
+                        t.name.replace(selectedCarModel, '').trim().replace(/^[-–—]\s*/, '') ||
+                        'Standard';
+                      const hasKwh = trimLabel.toLowerCase().includes('kwh');
+                      const kwh = t.battery_capacity_kwh ?? t.battery_kwh;
+                      return (
+                        <option key={t.id} value={t.id}>
+                          {hasKwh ? trimLabel : `${trimLabel} (${kwh} kWh)`}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
 
               {/* Initial Battery SoC Slider */}
               <div>

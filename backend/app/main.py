@@ -14,7 +14,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Tuple
-from supabase import create_client, Client
+try:
+    from supabase import create_client, Client
+except ImportError:
+    create_client = None
+    Client = Any
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,9 +27,9 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://your-project.supabase.co")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "your-service-role-key")
 
-supabase_client: Optional[Client] = None
+supabase_client: Optional[Any] = None
 try:
-    if SUPABASE_URL and not SUPABASE_URL.startswith("https://your-"):
+    if create_client and SUPABASE_URL and not SUPABASE_URL.startswith("https://your-"):
         supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 except Exception:
     supabase_client = None
@@ -528,11 +532,20 @@ async def get_supported_vehicles():
     results = []
     # 1. Variant database items
     for k, v in VEHICLE_VARIANTS_DB.items():
+        # Derive clean trim name from display_name
+        trim = v.display_name
+        if v.model_name and trim.startswith(v.model_name):
+            trim = trim[len(v.model_name):].strip(" -")
+        if not trim or trim.startswith("("):
+            trim = f"Standard {trim}".strip()
+
         results.append({
             "id": k,
             "variant_id": v.variant_id,
             "name": v.display_name,
             "display_name": v.display_name,
+            "model_name": v.model_name or v.display_name,
+            "trim_name": trim,
             "battery_kwh": v.usable_capacity_kwh,
             "battery_capacity_kwh": v.nominal_capacity_kwh,
             "nominal_kwh": v.nominal_capacity_kwh,
@@ -545,12 +558,14 @@ async def get_supported_vehicles():
         })
     # 2. EV_MODELS items
     for k, v in EV_MODELS.items():
-        if not any(item["id"] == k for item in results):
+        if not any(item["id"] == k or item.get("model_name") == v.name for item in results):
             results.append({
                 "id": k,
                 "variant_id": k,
                 "name": v.name,
                 "display_name": v.name,
+                "model_name": v.name,
+                "trim_name": f"Standard ({v.battery_capacity_kwh} kWh)",
                 "battery_kwh": v.battery_capacity_kwh,
                 "battery_capacity_kwh": v.battery_capacity_kwh,
                 "nominal_kwh": v.battery_capacity_kwh,
@@ -839,7 +854,7 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
 
         # Step 5: Generate instant, deterministic telematics briefing
         briefing_data = {
-            "vehicle_name": EV_MODELS.get(payload.vehicle_model, EV_MODELS["tata_nexon_ev"]).name,
+            "vehicle_name": engine.specs.name,
             "passengers": payload.passengers,
             "ambient_temp_c": payload.ambient_temp_c,
             "total_distance_km": physics_report.total_distance_km,
@@ -983,9 +998,13 @@ async def emergency_divert_endpoint(payload: EmergencyDivertRequest):
 
 @app.post("/api/route/briefing")
 def get_briefing(req: BriefingRequest):
-    vehicle = EV_MODELS.get(req.vehicle_model, EV_MODELS["tata_nexon_ev"])
+    if req.vehicle_model in VEHICLE_VARIANTS_DB:
+        vehicle_name = VEHICLE_VARIANTS_DB[req.vehicle_model].display_name
+    else:
+        vehicle = EV_MODELS.get(req.vehicle_model, EV_MODELS["tata_nexon_ev"])
+        vehicle_name = vehicle.name
     briefing_data = {
-        "vehicle_name": vehicle.name,
+        "vehicle_name": vehicle_name,
         "passengers": req.passengers,
         "ambient_temp_c": req.ambient_temp_c,
         "total_distance_km": req.route_summary.get("total_distance_km", 0.0),
