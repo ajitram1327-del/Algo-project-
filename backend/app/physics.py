@@ -1,22 +1,27 @@
 """
-Location-Agnostic EV Physics & Gradient Engine
+Location-Agnostic EV Physics, Gradient & Battery Degradation Engine
 Implements:
-1. Micro-segment densification (250m steps)
-2. Road slope/grade dynamics
-3. Aerodynamic drag, rolling resistance, and auxiliary HVAC loads
-4. Bounded regenerative braking
-5. Dual-point telemetry charging transitions
+1. Empirical battery degradation derived from vehicle age, odometer mileage, chemistry & climate
+2. Micro-segment spatial densification (250m intervals)
+3. Multi-force mechanical equilibrium (aerodynamic drag, rolling resistance, gravitational incline)
+4. Altitude-adjusted barometric air density
+5. Dynamic speed derating on steep climbs (> 7%)
+6. Continuous auxiliary & HVAC thermal modeling
+7. Bounded kinetic regenerative braking with age-derated power acceptance & impedance loss
+8. Resource-Constrained Shortest Path (RCSP) 10% reserve monitoring with lookahead charging
+9. Dual-point telemetry logging for sharp vertical recharge steps
 """
 
 import math
 from typing import List, Dict, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VehicleSpecs(BaseModel):
     name: str
     curb_weight_kg: float
     battery_capacity_kwh: float
+    battery_chemistry: str = "LFP"  # LFP (Tata, BYD) or NMC (MG, Hyundai, Tesla, etc.)
     max_charge_power_kw: float = 50.0
     max_regen_power_kw: float = 40.0
     drag_coefficient_cd: float = 0.29
@@ -32,6 +37,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Tata Tiago EV",
         curb_weight_kg=1150.0,
         battery_capacity_kwh=24.0,
+        battery_chemistry="LFP",
         max_charge_power_kw=25.0,
         max_regen_power_kw=22.0,
         drag_coefficient_cd=0.33,
@@ -42,6 +48,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="MG Comet EV",
         curb_weight_kg=815.0,
         battery_capacity_kwh=17.3,
+        battery_chemistry="LFP",
         max_charge_power_kw=17.0,
         max_regen_power_kw=15.0,
         drag_coefficient_cd=0.36,
@@ -52,6 +59,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Tata Punch EV",
         curb_weight_kg=1340.0,
         battery_capacity_kwh=35.0,
+        battery_chemistry="LFP",
         max_charge_power_kw=50.0,
         max_regen_power_kw=35.0,
         drag_coefficient_cd=0.34,
@@ -62,6 +70,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Mahindra XUV400",
         curb_weight_kg=1578.0,
         battery_capacity_kwh=39.4,
+        battery_chemistry="NMC",
         max_charge_power_kw=50.0,
         max_regen_power_kw=40.0,
         drag_coefficient_cd=0.33,
@@ -72,6 +81,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Tata Nexon EV",
         curb_weight_kg=1450.0,
         battery_capacity_kwh=45.0,
+        battery_chemistry="LFP",
         max_charge_power_kw=50.0,
         max_regen_power_kw=40.0,
         drag_coefficient_cd=0.32,
@@ -82,6 +92,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Tata Curvv EV",
         curb_weight_kg=1550.0,
         battery_capacity_kwh=55.0,
+        battery_chemistry="LFP",
         max_charge_power_kw=70.0,
         max_regen_power_kw=45.0,
         drag_coefficient_cd=0.29,
@@ -92,6 +103,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="MG ZS EV",
         curb_weight_kg=1610.0,
         battery_capacity_kwh=50.3,
+        battery_chemistry="NMC",
         max_charge_power_kw=50.0,
         max_regen_power_kw=45.0,
         drag_coefficient_cd=0.28,
@@ -102,6 +114,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="BYD Atto 3",
         curb_weight_kg=1750.0,
         battery_capacity_kwh=60.48,
+        battery_chemistry="LFP",
         max_charge_power_kw=80.0,
         max_regen_power_kw=50.0,
         drag_coefficient_cd=0.29,
@@ -112,6 +125,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="BYD Seal",
         curb_weight_kg=2055.0,
         battery_capacity_kwh=82.56,
+        battery_chemistry="LFP",
         max_charge_power_kw=150.0,
         max_regen_power_kw=60.0,
         drag_coefficient_cd=0.219,
@@ -122,6 +136,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Hyundai Ioniq 5",
         curb_weight_kg=1910.0,
         battery_capacity_kwh=72.6,
+        battery_chemistry="NMC",
         max_charge_power_kw=233.0,
         max_regen_power_kw=70.0,
         drag_coefficient_cd=0.288,
@@ -132,6 +147,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Kia EV6",
         curb_weight_kg=1980.0,
         battery_capacity_kwh=77.4,
+        battery_chemistry="NMC",
         max_charge_power_kw=233.0,
         max_regen_power_kw=75.0,
         drag_coefficient_cd=0.28,
@@ -142,6 +158,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Tesla Model 3",
         curb_weight_kg=1765.0,
         battery_capacity_kwh=78.1,
+        battery_chemistry="NMC",
         max_charge_power_kw=250.0,
         max_regen_power_kw=70.0,
         drag_coefficient_cd=0.219,
@@ -152,6 +169,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Tesla Model Y",
         curb_weight_kg=1980.0,
         battery_capacity_kwh=78.1,
+        battery_chemistry="NMC",
         max_charge_power_kw=250.0,
         max_regen_power_kw=75.0,
         drag_coefficient_cd=0.23,
@@ -162,6 +180,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Volvo EX40",
         curb_weight_kg=2040.0,
         battery_capacity_kwh=82.0,
+        battery_chemistry="NMC",
         max_charge_power_kw=200.0,
         max_regen_power_kw=65.0,
         drag_coefficient_cd=0.329,
@@ -172,6 +191,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="BMW i4",
         curb_weight_kg=2050.0,
         battery_capacity_kwh=83.9,
+        battery_chemistry="NMC",
         max_charge_power_kw=205.0,
         max_regen_power_kw=80.0,
         drag_coefficient_cd=0.24,
@@ -182,6 +202,7 @@ EV_MODELS: Dict[str, VehicleSpecs] = {
         name="Mercedes-Benz EQB",
         curb_weight_kg=2175.0,
         battery_capacity_kwh=66.5,
+        battery_chemistry="NMC",
         max_charge_power_kw=100.0,
         max_regen_power_kw=55.0,
         drag_coefficient_cd=0.28,
@@ -202,6 +223,12 @@ class SegmentTelemetry(BaseModel):
     is_charging_stop: bool = False
     charging_station_name: Optional[str] = None
     cumulative_energy_kwh: float
+    # Real-time weather attributes per segment
+    ambient_temp_c: float = 30.0
+    effective_airspeed_kmh: float = 65.0
+    headwind_component_kmh: float = 0.0
+    road_condition: str = "dry"  # 'dry', 'wet', or 'heavy_rain'
+    dynamic_crr: float = 0.012
 
 
 class PlannedChargeStop(BaseModel):
@@ -225,6 +252,24 @@ class PlannedChargeStop(BaseModel):
 ChargingPlanStop = PlannedChargeStop
 
 
+class BatteryHealthAudit(BaseModel):
+    vehicle_age_years: float
+    odometer_km: float
+    estimated_soh_percent: float
+    nominal_capacity_kwh: float
+    effective_usable_capacity_kwh: float
+    capacity_lost_kwh: float
+    impedance_loss_factor: float
+    effective_max_regen_kw: float
+
+
+class WeatherImpactSummary(BaseModel):
+    average_headwind_kmh: float
+    max_headwind_kmh: float
+    wet_route_percentage: float
+    extra_weather_energy_kwh: float
+
+
 class RoutePhysicsSummary(BaseModel):
     total_distance_km: float
     total_climb_m: int
@@ -244,6 +289,40 @@ class RoutePhysicsSummary(BaseModel):
     charging_stops: List[PlannedChargeStop] = []
     telemetry_profile: List[SegmentTelemetry]
     route_coordinates: Optional[List[List[float]]] = None
+    battery_health: Optional[BatteryHealthAudit] = None
+    weather_impact: Optional[WeatherImpactSummary] = None
+
+
+def estimate_battery_soh(
+    vehicle_age_years: float,
+    odometer_km: Optional[float] = None,
+    battery_chemistry: str = "LFP",
+    ambient_temp_c: float = 30.0,
+) -> float:
+    """
+    Computes empirical State of Health (SoH %) combining:
+    1. Calendar Aging: Non-linear SEI layer growth (proportional to sqrt(t) + linear drift).
+    2. Cycle Aging: Mechanical cathode cracking based on cumulative mileage throughput.
+    3. Thermal Acceleration: Arrhenius baseline scaling above 28°C.
+    """
+    age = max(0.0, float(vehicle_age_years))
+    km_driven = age * 12000.0 if (odometer_km is None or odometer_km <= 0) else float(odometer_km)
+
+    # LFP exhibits superior thermal calendar stability over NMC in tropical climates
+    chem_factor = 0.92 if battery_chemistry.upper() == "LFP" else 1.05
+
+    # Ambient thermal acceleration factor (>28°C)
+    temp_factor = 1.0 + max(0.0, (ambient_temp_c - 28.0) * 0.015)
+
+    # Non-linear calendar degradation (steepest during initial 18 months, stabilizing into sqrt(t))
+    calendar_loss = (2.2 * math.sqrt(age) + 0.85 * age) * chem_factor * temp_factor
+
+    # Cycle throughput loss (~0.052% per 1,000 km driven)
+    cycle_loss = (km_driven / 1000.0) * 0.052
+
+    total_loss = calendar_loss + cycle_loss
+    # Floor SoH at 65.0% (standard EV automotive end-of-life battery limit)
+    return round(max(65.0, min(100.0, 100.0 - total_loss)), 1)
 
 
 class UniversalEVPhysicsEngine:
@@ -258,29 +337,89 @@ class UniversalEVPhysicsEngine:
         passengers: int = 2,
         ambient_temp_c: float = 30.0,
         cabin_temp_c: float = 22.0,
+        vehicle_age_years: float = 0.0,
+        odometer_km: Optional[float] = None,
+        variant_specs: Optional[Any] = None,
+        calibration: Optional[Any] = None,
     ):
-        self.specs = EV_MODELS.get(vehicle_model_id, EV_MODELS["tata_nexon_ev"])
+        if variant_specs is not None:
+            self.specs = variant_specs
+        else:
+            self.specs = EV_MODELS.get(vehicle_model_id, EV_MODELS["tata_nexon_ev"])
+
+        self.cal = calibration
         self.passengers = max(1, passengers)
         self.ambient_temp_c = ambient_temp_c
         self.cabin_temp_c = cabin_temp_c
+        self.vehicle_age_years = max(0.0, float(vehicle_age_years))
+        self.odometer_km = (
+            self.vehicle_age_years * 12000.0
+            if (odometer_km is None or odometer_km <= 0)
+            else float(odometer_km)
+        )
+
+        # 1. State of Health (SoH) Derivation
+        self.estimated_soh_percent = estimate_battery_soh(
+            vehicle_age_years=self.vehicle_age_years,
+            odometer_km=self.odometer_km,
+            battery_chemistry=getattr(self.specs, "battery_chemistry", "LFP"),
+            ambient_temp_c=self.ambient_temp_c,
+        )
+        self.soh_ratio = self.estimated_soh_percent / 100.0
+
+        # 2. Usable Battery Capacity Derated by Aging or Learned Calibration
+        if self.cal is not None and getattr(self.cal, "calibrated_capacity_kwh", None) is not None:
+            self.effective_battery_capacity_kwh = float(self.cal.calibrated_capacity_kwh)
+        else:
+            nominal_kwh = getattr(self.specs, "battery_capacity_kwh", getattr(self.specs, "nominal_capacity_kwh", 45.0))
+            self.effective_battery_capacity_kwh = round(nominal_kwh * self.soh_ratio, 3)
+
+        # Compatibility attribute for graph/algorithm solvers
+        self.battery_capacity_kwh = self.effective_battery_capacity_kwh
+
+        # Base rolling resistance (with optional Crr offset from calibration)
+        base_crr = getattr(self.specs, "rolling_resistance_crr", getattr(self.specs, "base_crr", 0.012))
+        crr_offset = getattr(self.cal, "crr_offset", 0.0) if self.cal else 0.0
+        self.effective_base_crr = max(0.009, base_crr + crr_offset)
+
+        # 3. Internal Impedance / Joule Heating Loss Factor (up to 4% efficiency drop)
+        self.impedance_loss_factor = round(1.0 - (0.04 * (1.0 - self.soh_ratio)), 4)
+
+        # 4. De-rated Peak Regenerative Braking Acceptance Limit
+        max_regen = getattr(self.specs, "max_regen_power_kw", 40.0)
+        self.effective_max_regen_kw = round(
+            max_regen * (0.85 + 0.15 * self.soh_ratio), 2
+        )
 
         # Dynamic vehicle mass
         self.total_mass_kg = self.specs.curb_weight_kg + self.passengers * (
             self.PASSENGER_WEIGHT_KG + self.LUGGAGE_PER_PERSON_KG
         )
 
-        # Auxiliary and HVAC thermal draw
+        # Continuous Auxiliary and HVAC thermal load
         temp_delta = abs(self.ambient_temp_c - self.cabin_temp_c)
+        base_aux = getattr(self.specs, "base_auxiliary_power_w", 650.0)
         self.aux_power_w = (
-            self.specs.base_auxiliary_power_w
+            base_aux
             + (temp_delta * 85.0)
             + (self.passengers * self.HVAC_BODY_HEAT_W)
         )
 
-        # Ambient temperature battery derating
-        self.temp_efficiency = 1.0
+        # Ambient temperature battery derating (<18°C)
+        self.cold_temp_efficiency = 1.0
         if self.ambient_temp_c < 18.0:
-            self.temp_efficiency = max(0.65, 1.0 - (18.0 - self.ambient_temp_c) * 0.015)
+            self.cold_temp_efficiency = max(0.65, 1.0 - (18.0 - self.ambient_temp_c) * 0.015)
+        self.temp_efficiency = self.cold_temp_efficiency
+
+    @staticmethod
+    def calculate_bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Calculates initial compass heading (0° to 360°) from point 1 to point 2."""
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        d_lon = math.radians(lon2 - lon1)
+        y = math.sin(d_lon) * math.cos(p2)
+        x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(d_lon)
+        bearing = math.degrees(math.atan2(y, x))
+        return (bearing + 360.0) % 360.0
 
     @staticmethod
     def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -372,9 +511,47 @@ class UniversalEVPhysicsEngine:
 
         return dense_points
 
+    def calculate_segment_energy(
+        self, distance_km: float, elevation_change_m: float, speed_kmh: float = 50.0
+    ) -> float:
+        """Helper method for single-segment evaluation in graph/algorithm search."""
+        d_m = max(1.0, distance_km * 1000.0)
+        v_ms = max(0.5, speed_kmh / 3.6)
+        t_s = d_m / v_ms
+        theta = math.atan(elevation_change_m / d_m)
+
+        rho = self.air_density(100.0)
+        f_aero = 0.5 * rho * self.specs.drag_coefficient_cd * self.specs.frontal_area_m2 * (v_ms**2)
+        f_roll = self.total_mass_kg * self.GRAVITY * self.specs.rolling_resistance_crr * math.cos(theta)
+        f_grade = self.total_mass_kg * self.GRAVITY * math.sin(theta)
+
+        p_wheels_kw = (f_aero + f_roll + f_grade) * v_ms / 1000.0
+
+        if p_wheels_kw >= 0:
+            base_eff = self.specs.drivetrain_efficiency * self.cold_temp_efficiency * self.impedance_loss_factor
+            p_battery_kw = p_wheels_kw / max(0.01, base_eff)
+        else:
+            regen_possible = (
+                abs(p_wheels_kw)
+                * self.specs.regen_efficiency
+                * self.cold_temp_efficiency
+                * self.impedance_loss_factor
+            )
+            p_battery_kw = -min(self.effective_max_regen_kw, regen_possible)
+
+        aux_kwh = (self.aux_power_w / 1000.0) * (t_s / 3600.0)
+        return (p_battery_kw * (t_s / 3600.0)) + aux_kwh
+
+    def calculate_soc_delta(self, seg_energy_kwh: float) -> float:
+        """Computes SoC percentage change for a given energy delta (kWh)."""
+        if self.effective_battery_capacity_kwh <= 0:
+            return 0.0
+        return -(seg_energy_kwh / self.effective_battery_capacity_kwh) * 100.0
+
     def evaluate_route(
         self,
         coordinates_3d: List[List[float]],
+        weather_profile: Optional[List[Dict[str, float]]] = None,
         coord_order: str = "lat_lon_ele",
         cruising_speed_kmh: float = 65.0,
         initial_soc_percent: float = 50.0,
@@ -446,7 +623,6 @@ class UniversalEVPhysicsEngine:
                 last_station_km = s["dist_km"]
 
         # Ensure no gaps exceed single-charge safe range by augmenting national highway corridor plazas
-        # Max 115 km gap ensures even small battery packs (24 kWh) reach stations with realistic, variable arrival SoC
         augmented_stations = []
         last_aug_km = 0.0
         for s in curated_stations:
@@ -468,8 +644,9 @@ class UniversalEVPhysicsEngine:
             augmented_stations.append(s)
             last_aug_km = s["dist_km"]
 
-        current_soc_kwh = (initial_soc_percent / 100.0) * self.specs.battery_capacity_kwh
-        reserve_kwh = (reserve_threshold_percent / 100.0) * self.specs.battery_capacity_kwh
+        # Baseline energy capacities dynamically scaled to aged pack
+        current_soc_kwh = (initial_soc_percent / 100.0) * self.effective_battery_capacity_kwh
+        reserve_kwh = (reserve_threshold_percent / 100.0) * self.effective_battery_capacity_kwh
 
         total_dist_m = 0.0
         total_climb_m = 0.0
@@ -488,7 +665,14 @@ class UniversalEVPhysicsEngine:
         telemetry: List[SegmentTelemetry] = []
         planned_stops: List[PlannedChargeStop] = []
 
+        w_len = len(weather_profile) if weather_profile else 0
+        total_headwind_sum = 0.0
+        max_headwind = -999.0
+        wet_segments_count = 0
+        weather_penalized_energy = 0.0
+
         # Initial starting waypoint
+        init_temp = weather_profile[0].get("temp_c", self.ambient_temp_c) if (weather_profile and len(weather_profile) > 0) else self.ambient_temp_c
         telemetry.append(
             SegmentTelemetry(
                 segment_idx=0,
@@ -498,7 +682,13 @@ class UniversalEVPhysicsEngine:
                 soc_percent=round(initial_soc_percent, 1),
                 is_regenerating=False,
                 is_charging_step=False,
+                is_charging_stop=False,
                 cumulative_energy_kwh=0.0,
+                ambient_temp_c=round(init_temp, 1),
+                effective_airspeed_kmh=round(cruising_speed_kmh, 1),
+                headwind_component_kmh=0.0,
+                road_condition="dry",
+                dynamic_crr=round(self.effective_base_crr, 4),
             )
         )
 
@@ -508,6 +698,20 @@ class UniversalEVPhysicsEngine:
             d_m = p2["step_dist_m"]
             if d_m < 1.0:
                 continue
+
+            # Get local segment weather slice
+            w_idx = int((i / max(1, n - 2)) * (w_len - 1)) if w_len > 0 else 0
+            w_data = weather_profile[w_idx] if w_len > 0 else {
+                "temp_c": self.ambient_temp_c,
+                "precip_mm": 0.0,
+                "wind_speed_kmh": 0.0,
+                "wind_dir_deg": 0.0,
+            }
+
+            seg_temp = float(w_data.get("temp_c", self.ambient_temp_c))
+            precip = float(w_data.get("precip_mm", 0.0))
+            wind_speed_ms = float(w_data.get("wind_speed_kmh", 0.0)) / 3.6
+            wind_dir = float(w_data.get("wind_dir_deg", 0.0))
 
             # 1. Micro-segment slope calculation
             delta_ele = ele2 - ele1
@@ -526,30 +730,82 @@ class UniversalEVPhysicsEngine:
             else:
                 total_descent_m += abs(delta_ele)
 
-            # 3. Dynamic speed cap on steep grades
+            # 3. Segment Travel Bearing
+            seg_bearing = self.calculate_bearing_deg(p1["lat"], p1["lon"], p2["lat"], p2["lon"])
+
+            # 4. Vector Relative Wind Calculation
+            rel_wind_angle_rad = math.radians(wind_dir - seg_bearing)
+            headwind_component_ms = wind_speed_ms * math.cos(rel_wind_angle_rad)
+            headwind_kmh = headwind_component_ms * 3.6
+
+            if headwind_kmh > max_headwind:
+                max_headwind = headwind_kmh
+            total_headwind_sum += headwind_kmh
+
+            # 5. Dynamic Rolling Resistance based on surface precipitation
+            if precip >= 2.5:
+                road_state = "heavy_rain"
+                current_crr = self.effective_base_crr * 1.35
+                wet_segments_count += 1
+            elif precip >= 0.1:
+                road_state = "wet"
+                current_crr = self.effective_base_crr * 1.15
+                wet_segments_count += 1
+            else:
+                road_state = "dry"
+                current_crr = self.effective_base_crr
+
+            # 6. Dynamic speed derating on steep inclines (> 7%) & Relative Air Velocity
             effective_speed = min(cruising_speed_kmh, 35.0 if gradient_percent > 7.0 else cruising_speed_kmh)
             v_ms = max(0.5, effective_speed / 3.6)
             t_s = d_m / v_ms
 
-            # 4. Multi-force summation
+            # Airspeed includes headwind (or tailwind reduction)
+            v_air_ms = max(0.5, v_ms + headwind_component_ms)
+
+            # 7. Multi-force summation with barometric air density & relative airspeed
             rho = self.air_density((ele1 + ele2) / 2.0)
-            f_aero = 0.5 * rho * self.specs.drag_coefficient_cd * self.specs.frontal_area_m2 * (v_ms**2)
-            f_roll = self.total_mass_kg * self.GRAVITY * self.specs.rolling_resistance_crr * math.cos(theta)
+            f_aero = 0.5 * rho * self.specs.drag_coefficient_cd * self.specs.frontal_area_m2 * (v_air_ms**2)
+            f_roll = self.total_mass_kg * self.GRAVITY * current_crr * math.cos(theta)
             f_grade = self.total_mass_kg * self.GRAVITY * math.sin(theta)
 
-            p_wheels_kw = (f_aero + f_roll + f_grade) * v_ms / 1000.0
+            # Grey-box calibration: scale tractive power by the learned driver aggression multiplier
+            driver_aggression = getattr(self.cal, "driver_aggression_factor", 1.0) if self.cal else 1.0
+            p_wheels_kw = ((f_aero + f_roll + f_grade) * v_ms / 1000.0) * driver_aggression
 
-            # 5. Motoring vs. Regenerative braking
+            # Calculate incremental drag caused purely by adverse weather (for reporting)
+            f_aero_calm = 0.5 * rho * self.specs.drag_coefficient_cd * self.specs.frontal_area_m2 * (v_ms**2)
+            f_roll_dry = self.total_mass_kg * self.GRAVITY * self.effective_base_crr * math.cos(theta)
+            delta_weather_p_kw = max(0.0, ((f_aero - f_aero_calm) + (f_roll - f_roll_dry)) * v_ms / 1000.0)
+            weather_penalized_energy += delta_weather_p_kw * (t_s / 3600.0)
+
+            # 8. Motoring vs Regen accounting for aged battery impedance and cold temperature
+            drivetrain_eff = getattr(self.specs, "drivetrain_efficiency", 0.91)
+            regen_eff = getattr(self.specs, "regen_efficiency", 0.75)
+            base_aux_w = getattr(self.specs, "base_auxiliary_power_w", 650.0)
+
             if p_wheels_kw >= 0:
-                p_battery_kw = (p_wheels_kw / self.specs.drivetrain_efficiency) / self.temp_efficiency
+                base_eff = drivetrain_eff * self.cold_temp_efficiency * self.impedance_loss_factor
+                p_battery_kw = p_wheels_kw / max(0.01, base_eff)
                 is_regen = False
             else:
-                regen_possible = abs(p_wheels_kw) * self.specs.regen_efficiency * self.temp_efficiency
-                p_battery_kw = -min(self.specs.max_regen_power_kw, regen_possible)
+                regen_possible = (
+                    abs(p_wheels_kw)
+                    * regen_eff
+                    * self.cold_temp_efficiency
+                    * self.impedance_loss_factor
+                )
+                p_battery_kw = -min(self.effective_max_regen_kw, regen_possible)
                 is_regen = True
 
-            # 6. Cabin auxiliary load & unified energy accounting
-            aux_kwh = (self.aux_power_w / 1000.0) * (t_s / 3600.0)
+            # 9. Cabin auxiliary HVAC load with localized ambient temperature
+            local_temp_delta = abs(seg_temp - self.cabin_temp_c)
+            seg_aux_w = (
+                base_aux_w
+                + (local_temp_delta * 85.0)
+                + (self.passengers * self.HVAC_BODY_HEAT_W)
+            )
+            aux_kwh = (seg_aux_w / 1000.0) * (t_s / 3600.0)
             total_aux_consumed += aux_kwh
 
             if is_regen:
@@ -561,12 +817,12 @@ class UniversalEVPhysicsEngine:
                 gross_consumed += traction_kwh
                 seg_energy_kwh = traction_kwh + aux_kwh
 
-            # Enforce battery capacity ceiling
+            # Battery level update constrained to aged usable capacity ceiling
             current_soc_kwh -= seg_energy_kwh
-            current_soc_kwh = max(0.0, min(self.specs.battery_capacity_kwh, current_soc_kwh))
+            current_soc_kwh = max(0.0, min(self.effective_battery_capacity_kwh, current_soc_kwh))
             total_dist_m += d_m
 
-            current_soc_pct = (current_soc_kwh / self.specs.battery_capacity_kwh) * 100.0
+            current_soc_pct = (current_soc_kwh / self.effective_battery_capacity_kwh) * 100.0
             current_dist_km = round(total_dist_m / 1000.0, 2)
 
             # Advance station pointer to current highway coordinate
@@ -589,12 +845,11 @@ class UniversalEVPhysicsEngine:
                 else:
                     dist_to_next_km = (pt_dists_m[-1] / 1000.0) - curr_cand["dist_km"]
 
-                # Estimate energy needed to reach next milestone
-                # Average EV highway consumption ~0.14 kWh/km adjusted for vehicle mass
+                # Estimate energy needed to reach next milestone (~0.135 kWh/km baseline adjusted for mass)
                 est_rate_kwh_km = (self.total_mass_kg / 1500.0) * 0.135
                 est_energy_to_next = dist_to_next_km * est_rate_kwh_km
 
-                # Stop if car cannot safely reach next station without breaching 10% reserve, OR if SoC is <= 18%
+                # Stop if car cannot safely reach next station without breaching reserve, OR if SoC is <= 18%
                 will_breach_next = (current_soc_kwh - est_energy_to_next) < reserve_kwh
                 if will_breach_next or current_soc_pct <= 18.0:
                     should_stop_here = True
@@ -619,8 +874,9 @@ class UniversalEVPhysicsEngine:
                 station_lon = float(matched_station.get("lon", p2["lon"]))
                 power_kw = float(matched_station.get("power_kw", 60.0))
 
-                eff_kw = min(power_kw, self.specs.max_charge_power_kw)
-                target_kwh = 0.80 * self.specs.battery_capacity_kwh
+                eff_kw = min(power_kw, getattr(self.specs, "max_charge_power_kw", 50.0))
+                # Recharges up to 80% of effective aged capacity
+                target_kwh = 0.80 * self.effective_battery_capacity_kwh
                 added_kwh = max(0.0, target_kwh - current_soc_kwh)
                 dwell_mins = (added_kwh / max(10.0, eff_kw)) * 60.0 / 0.90
 
@@ -655,6 +911,11 @@ class UniversalEVPhysicsEngine:
                         is_charging_stop=True,
                         charging_station_name=station_name,
                         cumulative_energy_kwh=round(gross_consumed + total_aux_consumed - gross_regen, 3),
+                        ambient_temp_c=round(seg_temp, 1),
+                        effective_airspeed_kmh=round(v_air_ms * 3.6, 1),
+                        headwind_component_kmh=round(headwind_kmh, 1),
+                        road_condition=road_state,
+                        dynamic_crr=round(current_crr, 4),
                     )
                 )
 
@@ -673,6 +934,11 @@ class UniversalEVPhysicsEngine:
                         is_charging_stop=True,
                         charging_station_name=station_name,
                         cumulative_energy_kwh=round(gross_consumed + total_aux_consumed - gross_regen, 3),
+                        ambient_temp_c=round(seg_temp, 1),
+                        effective_airspeed_kmh=round(v_air_ms * 3.6, 1),
+                        headwind_component_kmh=round(headwind_kmh, 1),
+                        road_condition=road_state,
+                        dynamic_crr=round(current_crr, 4),
                     )
                 )
                 continue
@@ -688,6 +954,11 @@ class UniversalEVPhysicsEngine:
                     is_charging_step=False,
                     is_charging_stop=False,
                     cumulative_energy_kwh=round(gross_consumed + total_aux_consumed - gross_regen, 3),
+                    ambient_temp_c=round(seg_temp, 1),
+                    effective_airspeed_kmh=round(v_air_ms * 3.6, 1),
+                    headwind_component_kmh=round(headwind_kmh, 1),
+                    road_condition=road_state,
+                    dynamic_crr=round(current_crr, 4),
                 )
             )
 
@@ -706,6 +977,26 @@ class UniversalEVPhysicsEngine:
 
         total_charge_time = sum(s.charge_duration_mins for s in planned_stops)
         total_charge_kwh = sum(s.energy_added_kwh for s in planned_stops)
+
+        nominal_cap = getattr(self.specs, "battery_capacity_kwh", getattr(self.specs, "nominal_capacity_kwh", 45.0))
+        battery_audit = BatteryHealthAudit(
+            vehicle_age_years=self.vehicle_age_years,
+            odometer_km=round(self.odometer_km, 1),
+            estimated_soh_percent=self.estimated_soh_percent,
+            nominal_capacity_kwh=nominal_cap,
+            effective_usable_capacity_kwh=self.effective_battery_capacity_kwh,
+            capacity_lost_kwh=round(nominal_cap - self.effective_battery_capacity_kwh, 3),
+            impedance_loss_factor=self.impedance_loss_factor,
+            effective_max_regen_kw=self.effective_max_regen_kw,
+        )
+
+        valid_seg_count = max(1, n - 1)
+        weather_summary = WeatherImpactSummary(
+            average_headwind_kmh=round(total_headwind_sum / valid_seg_count, 1),
+            max_headwind_kmh=round(max_headwind if max_headwind != -999.0 else 0.0, 1),
+            wet_route_percentage=round((wet_segments_count / valid_seg_count) * 100.0, 1),
+            extra_weather_energy_kwh=round(weather_penalized_energy, 3),
+        )
 
         return RoutePhysicsSummary(
             total_distance_km=round(total_dist_m / 1000.0, 2),
@@ -726,4 +1017,10 @@ class UniversalEVPhysicsEngine:
             charging_stops=planned_stops,
             telemetry_profile=chart_telemetry,
             route_coordinates=[[p["lon"], p["lat"]] for p in raw_points],
+            battery_health=battery_audit,
+            weather_impact=weather_summary,
         )
+
+
+# Backward-compatibility alias
+PhysicsEngine = UniversalEVPhysicsEngine

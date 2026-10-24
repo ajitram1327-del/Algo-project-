@@ -6,7 +6,11 @@ export interface Vehicle {
   id: string;
   name: string;
   battery_kwh: number;
+  battery_capacity_kwh?: number;
+  battery_chemistry?: string;
   curb_weight_kg: number;
+  max_charge_power_kw?: number;
+  max_regen_kw?: number;
 }
 
 export interface ChargingStop {
@@ -32,6 +36,11 @@ export interface TelemetryPoint {
   soc_percent: number;
   is_regenerating: boolean;
   cumulative_energy_kwh: number;
+  ambient_temp_c?: number;
+  effective_airspeed_kmh?: number;
+  headwind_component_kmh?: number;
+  road_condition?: string;
+  dynamic_crr?: number;
 }
 
 export interface ChargingPlanStop {
@@ -45,6 +54,24 @@ export interface ChargingPlanStop {
   target_soc_percent: number;
   energy_added_kwh: number;
   charging_time_minutes: number;
+}
+
+export interface BatteryHealthAudit {
+  vehicle_age_years: number;
+  odometer_km: number;
+  estimated_soh_percent: number;
+  nominal_capacity_kwh: number;
+  effective_usable_capacity_kwh: number;
+  capacity_lost_kwh: number;
+  impedance_loss_factor: number;
+  effective_max_regen_kw: number;
+}
+
+export interface WeatherImpactSummary {
+  average_headwind_kmh: number;
+  max_headwind_kmh: number;
+  wet_route_percentage: number;
+  extra_weather_energy_kwh: number;
 }
 
 export interface RouteSummary {
@@ -65,6 +92,8 @@ export interface RouteSummary {
   route_coordinates?: [number, number][];
   available_chargers?: OcmCharger[];
   driver_briefing?: string;
+  battery_health?: BatteryHealthAudit;
+  weather_impact?: WeatherImpactSummary;
 }
 
 export const fetchVehicles = async (): Promise<Vehicle[]> => {
@@ -113,6 +142,8 @@ export const evaluateRoutePhysics = async (payload: {
   passengers: number;
   ambient_temp_c: number;
   initial_soc_percent: number;
+  vehicle_age_years?: number;
+  odometer_km?: number;
   origin_lat?: number;
   origin_lon?: number;
   dest_lat?: number;
@@ -132,3 +163,66 @@ export const fetchDriverBriefing = async (payload: {
   const res = await axios.post(`${API_BASE}/api/route/briefing`, payload);
   return res.data.briefing;
 };
+
+export interface UserVehicleProfile {
+  id?: string;
+  user_id: string;
+  variant_id: string;
+  registration_year: number;
+  initial_odometer_km: number;
+  current_odometer_km: number;
+  driver_aggression_factor: number;
+  crr_offset: number;
+  calibrated_capacity_kwh: number;
+  trips_completed: number;
+  confidence_score: number;
+}
+
+export const fetchUserProfile = async (userId: string): Promise<UserVehicleProfile | null> => {
+  try {
+    const res = await axios.get(`${API_BASE}/api/user/profile/${userId}`);
+    return res.data;
+  } catch (err: any) {
+    if (err.response?.status === 404) return null;
+    throw err;
+  }
+};
+
+export const saveUserProfile = async (payload: {
+  user_id: string;
+  variant_id: string;
+  registration_year: number;
+  odometer_km: number;
+}): Promise<UserVehicleProfile> => {
+  const res = await axios.post(`${API_BASE}/api/user/profile`, payload);
+  return res.data;
+};
+
+export const closeTripAndCalibrate = async (payload: {
+  trip_id: string;
+  user_id: string;
+  predicted_final_soc: number;
+  actual_final_soc: number;
+  initial_soc: number;
+  distance_km: number;
+  gross_predicted_energy_kwh: number;
+  origin_name?: string;
+  destination_name?: string;
+}): Promise<UserVehicleProfile> => {
+  const res = await axios.post(`${API_BASE}/api/trip/close`, payload);
+  return res.data;
+};
+
+export const evaluateStreamlinedRoute = async (payload: {
+  user_id: string;
+  origin_lat: number;
+  origin_lon: number;
+  dest_lat: number;
+  dest_lon: number;
+  current_soc_percent: number;
+  passengers?: number;
+}): Promise<RouteSummary & { calibration_status?: any }> => {
+  const res = await axios.post(`${API_BASE}/api/route/evaluate-streamlined`, payload);
+  return res.data;
+};
+

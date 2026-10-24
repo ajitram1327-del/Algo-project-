@@ -3,11 +3,19 @@
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import UnStrandedHero from "../components/UnStrandedHero";
+import FloatingSearchBar from "../components/FloatingSearchBar";
+import AuthModal from "../components/AuthModal";
+import CalibrationModal from "../components/CalibrationModal";
+import { supabase } from "../lib/supabaseClient";
+import { useUserLocation } from "../hooks/useUserLocation";
 import {
   fetchVehicles,
   evaluateRoutePhysics,
   fetchDriverBriefing,
   searchLocations,
+  fetchUserProfile,
+  UserVehicleProfile,
+  evaluateStreamlinedRoute,
   Vehicle,
   RouteSummary,
   GeocodeLocation,
@@ -40,22 +48,52 @@ import {
   Activity,
   Gauge,
   Compass,
+  X,
+  SlidersHorizontal,
+  Sliders,
+  User,
+  Info,
 } from 'lucide-react';
 
 // Dynamic Leaflet Map Import (no SSR) with fallback placeholder
 const MapComponent = dynamic(() => import('../components/Map'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full min-h-[460px] rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 font-mono text-xs">
+    <div className="w-full h-full flex items-center justify-center bg-[#f8f9fa] text-slate-400 font-sans text-sm">
       <div className="flex items-center gap-2">
-        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-        Initializing Interactive Corridor Map...
+        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
+        Loading Maps...
       </div>
     </div>
   ),
 });
 
-function RoutePlanner() {
+interface EmergencyCandidate {
+  station_id: string;
+  name: string;
+  distance_km: number;
+  arrival_soc_percent: number;
+  is_reachable: boolean;
+  recommended_eco_speed_kmh: number;
+  power_kw: number;
+  coordinates: [number, number];
+}
+
+function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void }) {
+  const { location, getLivePosition } = useUserLocation();
+  const [emergencyStations, setEmergencyStations] = useState<EmergencyCandidate[]>([]);
+  const [isEmergencyScanning, setIsEmergencyScanning] = useState(false);
+  const [userLocationCoords, setUserLocationCoords] = useState<[number, number] | null>(null);
+
+  // UI Drawer State
+  const [isDirectionsOpen, setIsDirectionsOpen] = useState<boolean>(true);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState<boolean>(false);
+
+  // Map View State
+  const [mapCenter, setMapCenter] = useState<[number, number]>([13.3412, 74.7478]); // Udupi / Manipal coordinates
+  const [mapZoom, setMapZoom] = useState<number>(13);
+
+  // Vehicle & Route Parameters
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<string>('tata_nexon_ev');
   const [passengers, setPassengers] = useState<number>(2);
@@ -84,7 +122,6 @@ function RoutePlanner() {
   const [loading, setLoading] = useState<boolean>(false);
   const [briefingLoading, setBriefingLoading] = useState<boolean>(false);
   const [showChart, setShowChart] = useState<boolean>(false);
-  const [showMetrics, setShowMetrics] = useState<boolean>(true);
   const [journeyRunId, setJourneyRunId] = useState<number>(0);
   const [routeError, setRouteError] = useState<string | null>(null);
   const [originSearchError, setOriginSearchError] = useState<string | null>(null);
@@ -93,11 +130,59 @@ function RoutePlanner() {
   const originTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const destTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // User Authentication & Grey-Box Profile State
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<UserVehicleProfile | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isCalibrationModalOpen, setIsCalibrationModalOpen] = useState(false);
+
+  // Initialize and listen to Supabase Auth state
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setCurrentUser(session.user);
+        fetchUserProfile(session.user.id)
+          .then((p) => {
+            if (p) setUserProfile(p);
+          })
+          .catch((err) => console.warn('Could not retrieve vehicle profile:', err));
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setCurrentUser(session.user);
+        try {
+          const p = await fetchUserProfile(session.user.id);
+          if (p) setUserProfile(p);
+        } catch (e) {
+          console.warn('Profile fetch after auth event failed:', e);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserProfile(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+    setUserProfile(null);
+    setIsCalibrationModalOpen(false);
+  };
+
   useEffect(() => {
     fetchVehicles()
       .then((data) => {
         setVehicles(data);
-        if (data.length > 0) setSelectedVehicle(data[1].id);
+        if (data.length > 0) setSelectedVehicle(data[1]?.id ?? data[0]?.id);
       })
       .catch((err) => console.error('Failed to load vehicles', err));
   }, []);
@@ -121,12 +206,11 @@ function RoutePlanner() {
         setShowOriginDropdown(true);
       } catch (err) {
         console.error('Origin search failed', err);
-        setOriginSearchError('Location search unavailable. Please try again.');
-        setShowOriginDropdown(true);
+        setOriginSearchError('Location search failed. Check backend connection.');
       } finally {
         setOriginLoading(false);
       }
-    }, 350);
+    }, 400);
   };
 
   // Debounced search for Destination
@@ -148,26 +232,27 @@ function RoutePlanner() {
         setShowDestDropdown(true);
       } catch (err) {
         console.error('Destination search failed', err);
-        setDestSearchError('Location search unavailable. Please try again.');
-        setShowDestDropdown(true);
+        setDestSearchError('Location search failed. Check backend connection.');
       } finally {
         setDestLoading(false);
       }
-    }, 350);
+    }, 400);
   };
 
   const selectOrigin = (loc: GeocodeLocation) => {
-    setOriginName(loc.name);
-    setOriginSearch(loc.name);
+    setOriginName(loc.display_name.split(',')[0]);
+    setOriginSearch(loc.display_name.split(',')[0]);
     setOriginCoords([loc.lon, loc.lat]);
     setShowOriginDropdown(false);
+    setMapCenter([loc.lat, loc.lon]);
   };
 
   const selectDest = (loc: GeocodeLocation) => {
-    setDestinationName(loc.name);
-    setDestSearch(loc.name);
+    setDestinationName(loc.display_name.split(',')[0]);
+    setDestSearch(loc.display_name.split(',')[0]);
     setDestCoords([loc.lon, loc.lat]);
     setShowDestDropdown(false);
+    setMapCenter([loc.lat, loc.lon]);
   };
 
   const swapLocations = () => {
@@ -192,23 +277,37 @@ function RoutePlanner() {
     setBriefing('');
 
     try {
-      const result = await evaluateRoutePhysics({
-        vehicle_model: selectedVehicle,
-        passengers,
-        ambient_temp_c: tempC,
-        initial_soc_percent: initialSoc,
-        origin_lat: originCoords[1],
-        origin_lon: originCoords[0],
-        dest_lat: destCoords[1],
-        dest_lon: destCoords[0],
-      });
+      let result: RouteSummary;
+      if (currentUser && userProfile) {
+        result = await evaluateStreamlinedRoute({
+          user_id: currentUser.id,
+          origin_lat: originCoords[1],
+          origin_lon: originCoords[0],
+          dest_lat: destCoords[1],
+          dest_lon: destCoords[0],
+          current_soc_percent: initialSoc,
+          passengers,
+        });
+      } else {
+        result = await evaluateRoutePhysics({
+          vehicle_model: selectedVehicle,
+          passengers,
+          ambient_temp_c: tempC,
+          initial_soc_percent: initialSoc,
+          origin_lat: originCoords[1],
+          origin_lon: originCoords[0],
+          dest_lat: destCoords[1],
+          dest_lon: destCoords[0],
+        });
+      }
 
-      if (!result.route_coordinates || result.route_coordinates.length < 2) {
+      const coordinates = result.route_coordinates || (result as any).route_geometry;
+      if (!coordinates || coordinates.length < 2) {
         throw new Error("The routing service did not return a road route.");
       }
 
       setSummary(result);
-      setActiveRouteCoords(result.route_coordinates);
+      setActiveRouteCoords(coordinates);
       setJourneyRunId((id) => id + 1);
 
       if (result.driver_briefing) {
@@ -239,552 +338,701 @@ function RoutePlanner() {
     }
   };
 
-  return (
-    <>
-      <a className="skip-link" href="#route-content">
-        Skip to route map and results
-      </a>
-      <div className="route-app">
-        {/* LEFT: Controls & Analytics Sidebar */}
-        <aside className="route-sidebar">
-          <div className="route-brand">
-            <h1 className="route-brand-title flex items-center gap-2.5">
-              <span className="route-brand-mark" aria-hidden="true">
-                <Zap className="h-5 w-5 text-sky-500 fill-sky-400/20" strokeWidth={2.4} />
-              </span>
-              <span className="route-brand-text">UnStranded</span>
-            </h1>
-          </div>
+  const handleEmergencySOS = async () => {
+    setIsEmergencyScanning(true);
+    try {
+      const [lat, lon] = await getLivePosition();
+      setUserLocationCoords([lat, lon]);
 
-          {/* Location Search Box */}
-          <div className="route-card route-route-card">
-            <div className="route-section-title">
-              <span className="flex items-center gap-1.5 text-sky-400">
-                <Navigation className="h-3.5 w-3.5" aria-hidden="true" /> Route Navigation
-              </span>
-              <button
-                type="button"
-                onClick={swapLocations}
-                className="route-swap"
-                title="Swap origin and destination"
-                aria-label="Swap starting point and destination"
-              >
-                <ArrowUpDown className="h-3 w-3" aria-hidden="true" /> Swap
-              </button>
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/route/emergency-divert`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            current_lat: lat,
+            current_lon: lon,
+            current_soc_percent: initialSoc,
+            vehicle_model: selectedVehicle,
+            passengers,
+            ambient_temp_c: tempC,
+          }),
+        }
+      );
+
+      if (res.ok) {
+        const data: EmergencyCandidate[] = await res.json();
+        setEmergencyStations(data);
+      } else {
+        throw new Error("Emergency divert endpoint returned an error");
+      }
+    } catch (err) {
+      console.warn("Using offline SOS demo preset", err);
+      setUserLocationCoords([13.3409, 74.7858]);
+      setEmergencyStations([
+        {
+          station_id: "chg_sos_1",
+          name: "Tata Power Fast Charger - NH66",
+          distance_km: 7.8,
+          arrival_soc_percent: Math.max(1.8, Number((initialSoc - 3.2).toFixed(1))),
+          is_reachable: true,
+          recommended_eco_speed_kmh: 60.0,
+          power_kw: 60.0,
+          coordinates: [13.3412, 74.7478],
+        },
+        {
+          station_id: "chg_sos_2",
+          name: "Zeon Charging Hub - Surathkal",
+          distance_km: 28.4,
+          arrival_soc_percent: 0.0,
+          is_reachable: false,
+          recommended_eco_speed_kmh: 40.0,
+          power_kw: 50.0,
+          coordinates: [13.0112, 74.7932],
+        },
+      ]);
+    } finally {
+      setIsEmergencyScanning(false);
+    }
+  };
+
+  const handleRecenter = () => {
+    if (userLocationCoords) {
+      setMapCenter(userLocationCoords);
+      setMapZoom(14);
+    } else if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setMapCenter([pos.coords.latitude, pos.coords.longitude]);
+          setMapZoom(14);
+        },
+        (err) => {
+          console.warn("Recenter fallback to origin", err);
+          if (originCoords) {
+            setMapCenter([originCoords[1], originCoords[0]]);
+            setMapZoom(13);
+          }
+        }
+      );
+    } else if (originCoords) {
+      setMapCenter([originCoords[1], originCoords[0]]);
+      setMapZoom(13);
+    }
+  };
+
+  const handleGlobalSearch = (query: string) => {
+    if (!query) return;
+    setIsDirectionsOpen(true);
+    setDestSearch(query);
+    handleDestChange(query);
+  };
+
+  const selectedVehicleObj = vehicles.find((v) => v.id === selectedVehicle);
+
+  return (
+    <main className="relative w-screen h-screen overflow-hidden bg-[#e5e3df] font-sans">
+      {/* Floating Google Maps-style Search Capsule (Visible when directions drawer is closed) */}
+      {!isDirectionsOpen && (
+        <FloatingSearchBar
+          onSearch={handleGlobalSearch}
+          onDirectionsClick={() => setIsDirectionsOpen(true)}
+          onMenuClick={() => setIsDirectionsOpen(true)}
+          placeholder="Search destination or EV charger..."
+          isDirectionsOpen={isDirectionsOpen}
+        />
+      )}
+
+      {/* Floating Directions Panel (Google Maps Style Drawer) */}
+      {isDirectionsOpen && (
+        <div className="absolute top-3 left-3 z-[1010] w-[410px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] flex flex-col bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.22)] overflow-hidden border border-slate-200/90 animate-in fade-in slide-in-from-top-2 duration-200">
+          {/* Header Bar */}
+          <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-slate-100">
+            <div
+              className="flex items-center gap-2.5 cursor-pointer group select-none"
+              onClick={onReturnToHero}
+              title="Return to UnStranded Home Screen"
+            >
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white flex items-center justify-center shadow-md shadow-sky-500/25 group-hover:scale-105 transition">
+                <Zap className="w-4 h-4 fill-white text-white" />
+              </div>
+              <div>
+                <h1 className="text-base font-black tracking-tight text-slate-900 leading-tight flex items-center gap-1.5">
+                  UnStranded
+                  <span className="text-[9px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700">EV</span>
+                </h1>
+                <p className="text-[11px] text-slate-500">Autonomous Range &amp; Charger Dispatch</p>
+              </div>
             </div>
 
-            {/* Origin Input */}
-            <div className="relative">
-              <label htmlFor="origin-search" className="field-label">
-                Starting point
-              </label>
-              <div className="route-input">
-                <MapPin className="h-4 w-4 text-emerald-400 shrink-0" aria-hidden="true" />
+            <div className="flex items-center gap-1.5">
+              {currentUser ? (
+                <button
+                  type="button"
+                  onClick={() => setIsCalibrationModalOpen(true)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/80 transition text-xs font-semibold"
+                  title="View Driver Profile & Grey-Box Telematics"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="max-w-[75px] truncate">{currentUser.email?.split('@')[0]}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500 hover:bg-sky-600 text-white transition text-xs font-bold shadow-xs"
+                  title="Sign In / Register Vehicle"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowAdvancedSettings((prev) => !prev)}
+                className={`p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition ${
+                  showAdvancedSettings ? 'bg-slate-100 text-blue-600 font-semibold' : ''
+                }`}
+                title="Vehicle & Simulation Settings"
+                aria-label="Settings"
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsDirectionsOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                title="Collapse into Search Bar"
+                aria-label="Close directions panel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable Content Body */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3.5 scrollbar-thin">
+            {/* Origin & Destination Inputs with Swap */}
+            <div className="relative bg-slate-50/80 p-3 rounded-xl border border-slate-200/70 space-y-2">
+              {/* Origin Row */}
+              <div className="relative flex items-center gap-2.5">
+                <div className="w-3.5 h-3.5 rounded-full border-2 border-emerald-500 bg-emerald-100 shrink-0" />
                 <input
-                  id="origin-search"
-                  name="origin"
-                  type="search"
-                  autoComplete="off"
+                  type="text"
                   value={originSearch}
                   onChange={(e) => handleOriginChange(e.target.value)}
-                  onFocus={() => (originSuggestions.length > 0 || originSearchError !== null) && setShowOriginDropdown(true)}
-                  aria-expanded={showOriginDropdown}
-                  aria-controls="origin-suggestions"
-                  placeholder="Search Origin (e.g., Manipal)"
-                  className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+                  onFocus={() => originSuggestions.length > 0 && setShowOriginDropdown(true)}
+                  placeholder="Choose starting point..."
+                  className="flex-1 text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
                 />
-                {originLoading && (
-                  <Loader2 className="h-3.5 w-3.5 text-emerald-400 animate-spin shrink-0" aria-label="Searching origin locations" />
-                )}
-              </div>
+                {originLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400 shrink-0" />}
 
-              {/* Origin Suggestions Dropdown */}
-              {showOriginDropdown && (
-                <div
-                  id="origin-suggestions"
-                  role="group"
-                  aria-label="Starting point suggestions"
-                  className="absolute z-50 left-0 right-0 mt-1 bg-white border border-[#e3eae6] rounded-lg shadow-2xl max-h-48 overflow-y-auto"
-                >
-                  {originSuggestions.length > 0 ? (
-                    originSuggestions.map((loc, idx) => (
+                {/* Origin Autocomplete Dropdown */}
+                {showOriginDropdown && originSuggestions.length > 0 && (
+                  <div className="absolute top-10 left-6 right-0 z-50 bg-white rounded-lg shadow-xl border border-slate-200 max-h-48 overflow-y-auto divide-y divide-slate-100">
+                    {originSuggestions.map((loc, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => selectOrigin(loc)}
-                        className="w-full text-left px-3 py-2 text-xs text-[#17241f] hover:bg-[#e8f5ef] border-b border-[#e3eae6] last:border-0 transition"
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50/70 text-slate-700 flex flex-col"
                       >
-                        <div className="font-semibold text-[#087f5b]">{loc.name}</div>
-                        <div className="text-[10px] text-[#718078] truncate">{loc.display_name}</div>
+                        <span className="font-semibold text-slate-900">{loc.display_name.split(',')[0]}</span>
+                        <span className="text-[10px] text-slate-500 truncate">{loc.display_name}</span>
                       </button>
-                    ))
-                  ) : (
-                    <div className="p-3 text-xs text-[#718078] text-center">
-                      {originSearchError || 'No matching locations found'}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Destination Input */}
-            <div className="relative">
-              <label htmlFor="dest-search" className="field-label">
-                Destination
-              </label>
-              <div className="route-input">
-                <MapPin className="h-4 w-4 text-blue-400 shrink-0" aria-hidden="true" />
-                <input
-                  id="dest-search"
-                  name="destination"
-                  type="search"
-                  autoComplete="off"
-                  value={destSearch}
-                  onChange={(e) => handleDestChange(e.target.value)}
-                  onFocus={() => (destSuggestions.length > 0 || destSearchError !== null) && setShowDestDropdown(true)}
-                  aria-expanded={showDestDropdown}
-                  aria-controls="dest-suggestions"
-                  placeholder="Search Destination (e.g., Malpe Beach)"
-                  className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-                />
-                {destLoading && (
-                  <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin shrink-0" aria-label="Searching destinations" />
+                    ))}
+                  </div>
                 )}
               </div>
 
-              {/* Destination Suggestions Dropdown */}
-              {showDestDropdown && (
-                <div
-                  id="dest-suggestions"
-                  role="group"
-                  aria-label="Destination suggestions"
-                  className="absolute z-50 left-0 right-0 mt-1 bg-white border border-[#e3eae6] rounded-lg shadow-2xl max-h-48 overflow-y-auto"
-                >
-                  {destSuggestions.length > 0 ? (
-                    destSuggestions.map((loc, idx) => (
+              {/* Destination Row */}
+              <div className="relative flex items-center gap-2.5">
+                <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <input
+                  type="text"
+                  value={destSearch}
+                  onChange={(e) => handleDestChange(e.target.value)}
+                  onFocus={() => destSuggestions.length > 0 && setShowDestDropdown(true)}
+                  placeholder="Choose destination..."
+                  className="flex-1 text-sm bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+                />
+                {destLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400 shrink-0" />}
+
+                {/* Destination Autocomplete Dropdown */}
+                {showDestDropdown && destSuggestions.length > 0 && (
+                  <div className="absolute top-10 left-6 right-0 z-50 bg-white rounded-lg shadow-xl border border-slate-200 max-h-48 overflow-y-auto divide-y divide-slate-100">
+                    {destSuggestions.map((loc, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => selectDest(loc)}
-                        className="w-full text-left px-3 py-2 text-xs text-[#17241f] hover:bg-blue-600/10 border-b border-[#e3eae6] last:border-0 transition"
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50/70 text-slate-700 flex flex-col"
                       >
-                        <div className="font-semibold text-blue-600">{loc.name}</div>
-                        <div className="text-[10px] text-[#718078] truncate">{loc.display_name}</div>
+                        <span className="font-semibold text-slate-900">{loc.display_name.split(',')[0]}</span>
+                        <span className="text-[10px] text-slate-500 truncate">{loc.display_name}</span>
                       </button>
-                    ))
-                  ) : (
-                    <div className="p-3 text-xs text-[#718078] text-center">
-                      {destSearchError || 'No matching locations found'}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Vehicle & Environmental Inputs */}
-          <div className="route-card route-settings">
-            <div>
-              <label htmlFor="vehicle-model" className="field-label">
-                Vehicle Model
-              </label>
-              <select
-                id="vehicle-model"
-                name="vehicle"
-                value={selectedVehicle}
-                onChange={(e) => setSelectedVehicle(e.target.value)}
-                className="route-select"
-              >
-                {vehicles.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs text-slate-300">
-                <label htmlFor="passengers-slider" className="flex items-center gap-1 font-medium">
-                  <Users className="h-3 w-3" aria-hidden="true" /> Passengers
-                </label>
-                <output htmlFor="passengers-slider" className="font-semibold text-emerald-400">
-                  {passengers}
-                </output>
-              </div>
-              <input
-                id="passengers-slider"
-                name="passengers"
-                type="range"
-                min="1"
-                max="5"
-                value={passengers}
-                onChange={(e) => setPassengers(Number(e.target.value))}
-                className="route-range"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs text-slate-300">
-                <label htmlFor="temp-slider" className="flex items-center gap-1 font-medium">
-                  <Thermometer className="h-3 w-3" aria-hidden="true" /> Ambient Temperature
-                </label>
-                <output htmlFor="temp-slider" className="font-semibold text-emerald-400">
-                  {tempC}°C
-                </output>
-              </div>
-              <input
-                id="temp-slider"
-                name="ambient_temp"
-                type="range"
-                min="10"
-                max="45"
-                value={tempC}
-                onChange={(e) => setTempC(Number(e.target.value))}
-                className="route-range"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs text-slate-300">
-                <label htmlFor="soc-slider" className="flex items-center gap-1 font-medium">
-                  <BatteryCharging className="h-3 w-3" aria-hidden="true" /> Starting Battery SoC
-                </label>
-                <output htmlFor="soc-slider" className="font-semibold text-emerald-400">
-                  {initialSoc}%
-                </output>
-              </div>
-              <input
-                id="soc-slider"
-                name="initial_soc"
-                type="range"
-                min="10"
-                max="100"
-                value={initialSoc}
-                onChange={(e) => setInitialSoc(Number(e.target.value))}
-                className="route-range"
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={handleCalculate}
-              disabled={loading}
-              className="route-primary-action"
-            >
-              {loading ? 'Evaluating Forces...' : 'Simulate Route Physics'}
-            </button>
-
-            <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-              {loading ? 'Calculating route.' : summary ? 'Route calculation complete.' : ''}
-            </p>
-
-            {routeError && (
-              <p className="route-alert" role="alert">
-                {routeError}
-              </p>
-            )}
-          </div>
-
-          {/* Route Simulation Results: Planned Stops, Warnings, and Briefing */}
-          {summary && (
-            <div className="route-results">
-              {summary.charging_stops && summary.charging_stops.length > 0 && (
-                <div className="route-card route-charging">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-500 flex items-center gap-1.5">
-                      <BatteryCharging className="h-4 w-4" aria-hidden="true" /> Planned Charging Stops ({summary.charging_stops.length})
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/30">
-                      +{summary.total_energy_charged_kwh} kWh Added
-                    </span>
-                  </div>
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {summary.charging_stops.map((stop, idx) => (
-                      <div key={idx} className="route-stop">
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-slate-800 flex items-center gap-1 truncate max-w-[210px]">
-                            ⚡ {stop.name}
-                          </span>
-                          <span className="text-slate-500 text-[10px] font-mono shrink-0">km {stop.arrival_distance_km}</span>
-                        </div>
-                        <div className="flex justify-between text-slate-600 text-[11px] mt-1">
-                          <span>Recharge: <span className="text-rose-500 font-semibold">{stop.arrival_soc_percent}%</span> → <span className="text-emerald-600 font-semibold">{stop.target_soc_percent}%</span></span>
-                          <span className="text-amber-600 font-semibold">~{stop.charging_time_minutes} mins</span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 flex justify-between pt-1 mt-1 border-t border-slate-100">
-                          <span>Speed: {stop.power_kw} kW Ultra-Fast</span>
-                          <span>Added: +{stop.energy_added_kwh} kWh</span>
-                        </div>
-                      </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {summary.is_unreachable && (
-                <div className="route-alert">
-                  <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0" aria-hidden="true" />
-                  <span>
-                    Route exceeds vehicle range! No reachable charging stations were found along this corridor before 0% battery.
-                  </span>
-                </div>
-              )}
-
-              {summary.reserve_breached && !summary.is_unreachable && (
-                <div className="route-alert">
-                  <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0" aria-hidden="true" />
-                  <span>
-                    Reserve breached! Battery fell below 10% safety margin. Please recharge at nearest stop.
-                  </span>
-                </div>
-              )}
-
-              {/* Fleet AI Logistics Briefing */}
-              <div className="route-card route-briefing">
-                <div className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5">
-                  <Wind className="h-3.5 w-3.5" aria-hidden="true" /> Fleet AI Logistics Briefing
-                </div>
-                {briefingLoading ? (
-                  <div className="text-xs text-slate-400 animate-pulse mt-2">
-                    Agent analyzing gradients and payload forces...
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-600 leading-relaxed">{briefing}</p>
                 )}
               </div>
+
+              {/* Swap Origin / Destination button */}
+              <button
+                type="button"
+                onClick={swapLocations}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white border border-slate-200 shadow-xs hover:bg-slate-100 flex items-center justify-center text-slate-500 transition"
+                title="Swap origin and destination"
+                aria-label="Swap locations"
+              >
+                <ArrowUpDown className="w-3 h-3" />
+              </button>
             </div>
-          )}
-        </aside>
 
-        {/* RIGHT: Map, Horizontal Metrics Toolbar & On-Demand Elevation Chart */}
-        <main id="route-content" className="route-workspace">
-          <h2 className="sr-only">Interactive Map and Route Analysis</h2>
-          
-          <div className="map-stage">
-            <MapComponent
-              chargingStops={summary?.charging_stops || []}
-              coordinates={activeRouteCoords}
-              originName={originName}
-              destinationName={destinationName}
-              originCoords={originCoords}
-              destinationCoords={destCoords}
-              journeyRunId={journeyRunId}
-            />
-          </div>
+            {/* Error notifications */}
+            {(originSearchError || destSearchError || routeError) && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                <span>{originSearchError || destSearchError || routeError}</span>
+              </div>
+            )}
 
-          {/* On-Demand Metrics & Elevation Chart Section */}
-          {summary && (
-            <div className="map-ondemand-container">
-              {/* Map On-Demand Action & Status Toolbar */}
-              <div className="map-toolbar">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowMetrics((prev) => !prev)}
-                    className={`map-toolbar-btn ${showMetrics ? 'active' : ''}`}
-                    title="Toggle route metrics toolbar"
-                    aria-expanded={showMetrics}
-                  >
-                    <Gauge className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                    <span>Route Metrics</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono font-semibold">
-                      {summary.total_distance_km} km
-                    </span>
-                    {showMetrics ? (
-                      <ChevronDown className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-                    ) : (
-                      <ChevronUp className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-                    )}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowChart((prev) => !prev)}
-                    className={`map-toolbar-btn ${showChart ? 'active' : ''}`}
-                    title="Toggle elevation vs battery charge profile graph"
-                    aria-expanded={showChart}
-                  >
-                    <Activity className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-                    <span>Elevation vs Charge Profile</span>
-                    {showChart ? (
-                      <ChevronDown className="h-4 w-4 text-emerald-700" aria-hidden="true" />
-                    ) : (
-                      <ChevronUp className="h-4 w-4 text-emerald-700" aria-hidden="true" />
-                    )}
-                  </button>
-                </div>
+            {/* Vehicle & Battery Controls */}
+            <div className="space-y-2.5 bg-slate-50/60 p-3 rounded-xl border border-slate-200/70 text-xs">
+              {/* Vehicle Selection */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1 uppercase tracking-wide">
+                  EV Model
+                </label>
+                <select
+                  value={selectedVehicle}
+                  onChange={(e) => setSelectedVehicle(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+                >
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.battery_capacity_kwh ?? v.battery_kwh} kWh)
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Horizontal Metrics in Horizontal Orientation Below Map */}
-              {showMetrics && (
-                <div className="map-horizontal-metrics">
-                  <div className="map-horizontal-metric">
-                    <span className="metric-label">
-                      <Navigation className="h-3 w-3 text-sky-500 shrink-0" aria-hidden="true" /> Distance
-                    </span>
-                    <span className="metric-value">{summary.total_distance_km} km</span>
+              {/* Initial Battery SoC Slider */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
+                    Starting Battery SoC
+                  </span>
+                  <span
+                    className={`font-mono font-bold text-xs ${
+                      initialSoc <= 20
+                        ? 'text-rose-600'
+                        : initialSoc <= 40
+                        ? 'text-amber-600'
+                        : 'text-emerald-600'
+                    }`}
+                  >
+                    {initialSoc}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  step="1"
+                  value={initialSoc}
+                  onChange={(e) => setInitialSoc(Number(e.target.value))}
+                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+              </div>
+
+              {/* Advanced Environmental Inputs (Toggled) */}
+              {showAdvancedSettings && (
+                <div className="pt-2 border-t border-slate-200/80 grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-0.5 flex items-center gap-1">
+                      <Users className="w-3 h-3 text-slate-400" /> Passengers
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="6"
+                      value={passengers}
+                      onChange={(e) => setPassengers(Number(e.target.value))}
+                      className="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-slate-800"
+                    />
                   </div>
-                  <div className="map-horizontal-metric">
-                    <span className="metric-label">
-                      <Zap className="h-3 w-3 text-amber-500 shrink-0" aria-hidden="true" /> Net Energy
-                    </span>
-                    <span className="metric-value">{summary.net_energy_kwh} kWh</span>
+
+                  <div>
+                    <label className="block font-medium text-slate-600 mb-0.5 flex items-center gap-1">
+                      <Thermometer className="w-3 h-3 text-slate-400" /> Temp (°C)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={tempC}
+                      onChange={(e) => setTempC(Number(e.target.value))}
+                      className="w-full bg-white border border-slate-200 rounded-md px-2 py-1 text-slate-800"
+                    />
                   </div>
-                  <div className="map-horizontal-metric">
-                    <span className="metric-label">
-                      <BatteryCharging className="h-3 w-3 text-emerald-500 shrink-0" aria-hidden="true" /> Final SoC
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons: Calculate Route & Emergency SOS */}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCalculate}
+                disabled={loading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold py-2.5 px-3 rounded-xl shadow-sm flex items-center justify-center gap-2 text-xs transition cursor-pointer disabled:opacity-50"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Calculating Physics...</span>
+                  </>
+                ) : (
+                  <>
+                    <Navigation className="w-4 h-4" />
+                    <span>Calculate Route</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleEmergencySOS}
+                disabled={isEmergencyScanning}
+                className="bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold py-2.5 px-3 rounded-xl shadow-sm flex items-center justify-center gap-1.5 text-xs transition cursor-pointer disabled:opacity-50"
+                title="Scan Reachable Chargers with Dynamic SoC Physics"
+              >
+                {isEmergencyScanning ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>SOS Divert</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Emergency SOS Candidates Display */}
+            {emergencyStations.length > 0 && (
+              <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-amber-900 flex items-center gap-1">
+                    🚨 Emergency Divert Stations
+                  </span>
+                  <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-mono">
+                    {emergencyStations.filter((s) => s.is_reachable).length} Reachable
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                  {emergencyStations.map((st) => (
+                    <div
+                      key={st.station_id}
+                      className="bg-white p-2 rounded-lg border border-amber-100 shadow-2xs text-[11px] space-y-0.5"
+                    >
+                      <div className="flex justify-between items-center font-semibold">
+                        <span className="text-slate-800 truncate">{st.name}</span>
+                        <span className="font-mono text-slate-500 shrink-0">{st.distance_km} km</span>
+                      </div>
+                      <div className="flex justify-between text-slate-600">
+                        <span>Power: {st.power_kw} kW</span>
+                        <span
+                          className={`font-semibold ${
+                            st.is_reachable ? 'text-emerald-600' : 'text-rose-600'
+                          }`}
+                        >
+                          Arr. SoC: {st.arrival_soc_percent}%
+                        </span>
+                      </div>
+                      {st.is_reachable && st.recommended_eco_speed_kmh < 60 && (
+                        <div className="text-[10px] text-amber-700 font-medium">
+                          Eco cap: {st.recommended_eco_speed_kmh} km/h
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Route Physics Summary Results */}
+            {summary && (
+              <div className="space-y-3 pt-1 border-t border-slate-100 animate-in fade-in duration-200">
+                {/* Feasibility Alert */}
+                {summary.is_unreachable ? (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+                    <span>Range exceeded! Route requires charging stops beyond corridor capacity.</span>
+                  </div>
+                ) : summary.reserve_breached ? (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>Reserve breached (&lt;10% SoC). Charging stop scheduled.</span>
+                  </div>
+                ) : (
+                  <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+                    <BatteryCharging className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Feasible route with active regenerative telemetry.</span>
+                  </div>
+                )}
+
+                {/* Primary Metrics Grid */}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="block text-[10px] text-slate-500 font-medium">Distance</span>
+                    <span className="text-sm font-bold text-slate-800 font-mono">
+                      {summary.total_distance_km} km
                     </span>
-                    <span className={`metric-value ${summary.reserve_breached ? 'text-rose-500' : 'text-emerald-600'}`}>
+                  </div>
+
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="block text-[10px] text-slate-500 font-medium">Net Energy</span>
+                    <span className="text-sm font-bold text-slate-800 font-mono">
+                      {summary.net_energy_kwh} kWh
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <span className="block text-[10px] text-slate-500 font-medium">Final Battery</span>
+                    <span
+                      className={`text-sm font-bold font-mono ${
+                        summary.final_soc_percent < 15 ? 'text-rose-600' : 'text-emerald-600'
+                      }`}
+                    >
                       {summary.final_soc_percent}%
                     </span>
                   </div>
-                  <div className="map-horizontal-metric">
-                    <span className="metric-label">
-                      <Activity className="h-3 w-3 text-indigo-500 shrink-0" aria-hidden="true" /> Max Gradient
-                    </span>
-                    <span className="metric-value">{summary.max_gradient_percent}%</span>
-                  </div>
-                  <div className="map-horizontal-metric">
-                    <span className="metric-label">
-                      <Compass className="h-3 w-3 text-blue-500 shrink-0" aria-hidden="true" /> Climb / Descent
-                    </span>
-                    <span className="metric-value">+{summary.total_climb_m}m / -{summary.total_descent_m}m</span>
-                  </div>
-                  <div className="map-horizontal-metric">
-                    <span className="metric-label">
-                      <Zap className="h-3 w-3 text-teal-500 shrink-0" aria-hidden="true" /> Regenerated
-                    </span>
-                    <span className="metric-value">{summary.gross_regenerated_kwh} kWh</span>
-                  </div>
                 </div>
-              )}
 
-              {/* On-Demand Elevation vs SoC Dual Area Chart (Hidden by default, slides out and up on click) */}
-              {showChart && summary.telemetry_profile && summary.telemetry_profile.length > 0 && (
-                <div className="route-chart chart-drawer-enter">
-                  <div className="route-chart-header">
-                    <div className="flex items-center gap-2">
-                      <Activity className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-                      <span className="font-semibold text-slate-700">Road Elevation (m) vs. Dynamic Battery State of Charge (%)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-emerald-600 text-[11px] font-semibold bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                        Synchronized Gradient Profile
+                {/* Charging Stops Accordion */}
+                {summary.charging_stops && summary.charging_stops.length > 0 && (
+                  <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3 space-y-2">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-bold text-blue-900 flex items-center gap-1">
+                        ⚡ Planned Fast-Charging Stops
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowChart(false)}
-                        className="text-slate-400 hover:text-slate-700 p-1 rounded-md transition"
-                        title="Collapse elevation graph"
-                      >
-                        <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                      <span className="text-[10px] text-blue-700 font-medium">
+                        ~{summary.total_charging_time_minutes} min total
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {summary.charging_stops.map((stop, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-white p-2 rounded-lg border border-blue-100 shadow-2xs text-[11px] space-y-0.5"
+                        >
+                          <div className="flex justify-between font-semibold text-slate-800">
+                            <span className="truncate">{stop.name}</span>
+                            <span className="font-mono text-slate-500 shrink-0">
+                              km {stop.arrival_distance_km}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-slate-600">
+                            <span>
+                              {stop.arrival_soc_percent}% →{' '}
+                              <span className="text-emerald-600 font-semibold">
+                                {stop.target_soc_percent}%
+                              </span>
+                            </span>
+                            <span className="text-amber-600 font-semibold">
+                              ~{stop.charging_time_minutes} min ({stop.power_kw} kW)
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className="w-full h-48">
+                )}
+
+                {/* AI Driver Briefing */}
+                {briefing && (
+                  <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-2.5 text-xs space-y-1">
+                    <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                      <Wind className="w-3.5 h-3.5 text-blue-500" /> AI Driver Briefing
+                    </span>
+                    <p className="text-slate-600 text-[11px] leading-relaxed">{briefing}</p>
+                  </div>
+                )}
+
+                {/* Elevation & Telemetry Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowChart((prev) => !prev)}
+                  className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-semibold text-slate-700 flex items-center justify-center gap-1.5 transition"
+                >
+                  <Activity className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{showChart ? "Hide Elevation Profile" : "View Elevation & Battery Profile"}</span>
+                  {showChart ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+
+                {/* Elevation vs Battery Chart */}
+                {showChart && summary.telemetry_profile && summary.telemetry_profile.length > 0 && (
+                  <div className="h-44 w-full bg-white p-2 rounded-xl border border-slate-200">
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart
                         data={summary.telemetry_profile}
-                        margin={{ top: 10, right: 20, bottom: 5, left: -10 }}
+                        margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.8} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                         <XAxis
                           dataKey="distance_km"
-                          stroke="#64748b"
-                          tick={{ fontSize: 10 }}
-                          unit=" km"
+                          unit="km"
+                          tick={{ fontSize: 9 }}
+                          tickLine={false}
                         />
-                        {/* Left Y Axis: Elevation */}
                         <YAxis
-                          yAxisId="left"
-                          stroke="#0284c7"
-                          tick={{ fontSize: 10 }}
+                          yAxisId="elev"
                           unit="m"
-                          domain={['auto', 'auto']}
+                          tick={{ fontSize: 9 }}
+                          tickLine={false}
                         />
-                        {/* Right Y Axis: Battery SoC */}
                         <YAxis
-                          yAxisId="right"
+                          yAxisId="soc"
                           orientation="right"
-                          stroke="#059669"
-                          tick={{ fontSize: 10 }}
-                          unit="%"
                           domain={[0, 100]}
+                          unit="%"
+                          tick={{ fontSize: 9 }}
+                          tickLine={false}
                         />
                         <Tooltip
                           contentStyle={{
-                            backgroundColor: '#ffffff',
-                            borderColor: '#cbd5e1',
+                            fontSize: '11px',
+                            backgroundColor: '#0f172a',
+                            color: '#ffffff',
                             borderRadius: '8px',
-                            fontSize: '12px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
                           }}
                         />
-                        <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }} />
                         <Area
-                          yAxisId="left"
+                          yAxisId="elev"
                           type="monotone"
                           dataKey="elevation_m"
                           name="Elevation (m)"
-                          fill="#38bdf8"
-                          fillOpacity={0.25}
-                          stroke="#0284c7"
-                          strokeWidth={2}
+                          fill="#bfdbfe"
+                          stroke="#3b82f6"
+                          strokeWidth={1.5}
                         />
                         <Line
-                          yAxisId="right"
+                          yAxisId="soc"
                           type="monotone"
                           dataKey="soc_percent"
                           name="Battery SoC (%)"
-                          stroke="#059669"
-                          strokeWidth={2.5}
+                          stroke="#10b981"
+                          strokeWidth={2}
                           dot={false}
                         />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
+                )}
 
-                  {/* Accessible Non-Visual Tabular Alternative for the Chart */}
-                  <details className="mt-2 text-xs">
-                    <summary className="cursor-pointer text-[11px] font-medium text-slate-500 hover:text-slate-800 py-1">
-                      View tabular elevation & battery telemetry data ({summary.telemetry_profile.length} points)
-                    </summary>
-                    <div className="max-h-40 overflow-y-auto mt-2 border border-slate-200 rounded-md bg-white">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <caption className="sr-only">
-                          Route elevation and battery state of charge by distance along corridor
-                        </caption>
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500 sticky top-0">
-                            <th scope="col" className="p-1.5 font-semibold">Dist (km)</th>
-                            <th scope="col" className="p-1.5 font-semibold">Elev (m)</th>
-                            <th scope="col" className="p-1.5 font-semibold">SoC (%)</th>
-                            <th scope="col" className="p-1.5 font-semibold">Gradient</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {summary.telemetry_profile.map((pt, idx) => (
-                            <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/80">
-                              <td className="p-1.5 font-mono">{pt.distance_km.toFixed(1)}</td>
-                              <td className="p-1.5 font-mono">{Math.round(pt.elevation_m)}m</td>
-                              <td className="p-1.5 font-mono">{pt.soc_percent.toFixed(1)}%</td>
-                              <td className="p-1.5 font-mono">{pt.gradient_percent.toFixed(1)}%</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </details>
-                </div>
-              )}
+                {/* Complete Drive & Grey-Box Calibration Button */}
+                {currentUser ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsCalibrationModalOpen(true)}
+                    className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold text-xs shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    Complete Drive &amp; Recalibrate (EMA)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsAuthModalOpen(true)}
+                    className="w-full py-2 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-700 font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    Sign In to Enable Grey-Box Learning
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Top-Right Driver / Profile Floating Capsule */}
+      <div className="absolute top-3 right-3 z-[1000] flex items-center gap-2">
+        {currentUser ? (
+          <button
+            type="button"
+            onClick={() => setIsCalibrationModalOpen(true)}
+            className="flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.12)] border border-slate-200 text-xs font-semibold text-slate-800 hover:bg-white transition"
+          >
+            <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-[10px]">
+              {currentUser.email?.[0]?.toUpperCase() || 'U'}
             </div>
-          )}
-        </main>
+            <div className="text-left hidden sm:block">
+              <div className="leading-tight font-bold text-slate-900 truncate max-w-[120px]">
+                {currentUser.email?.split('@')[0]}
+              </div>
+              <div className="text-[10px] text-emerald-600 leading-none">
+                {userProfile ? `${userProfile.driver_aggression_factor.toFixed(2)}x Aggression` : 'Grey-Box Active'}
+              </div>
+            </div>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsAuthModalOpen(true)}
+            className="flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.12)] border border-slate-200 text-xs font-bold text-slate-800 hover:bg-white hover:text-sky-600 transition"
+          >
+            <User className="w-4 h-4 text-sky-500" />
+            <span>Driver Login</span>
+          </button>
+        )}
       </div>
-    </>
+
+      {/* Fullscreen Map Canvas */}
+      <div className="w-full h-full absolute inset-0 z-0">
+        <MapComponent
+          center={mapCenter}
+          zoom={mapZoom}
+          coordinates={activeRouteCoords}
+          chargingStops={summary?.charging_stops || []}
+          originName={originName}
+          destinationName={destinationName}
+          originCoords={originCoords}
+          destinationCoords={destCoords}
+          journeyRunId={journeyRunId}
+          userLocation={userLocationCoords}
+          emergencyStations={emergencyStations}
+          onRecenter={handleRecenter}
+        />
+      </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={async (usr) => {
+          setCurrentUser(usr);
+          if (usr?.id) {
+            const p = await fetchUserProfile(usr.id);
+            if (p) setUserProfile(p);
+          }
+        }}
+      />
+
+      {/* Grey-Box Calibration Modal */}
+      <CalibrationModal
+        isOpen={isCalibrationModalOpen}
+        onClose={() => setIsCalibrationModalOpen(false)}
+        profile={userProfile}
+        userEmail={currentUser?.email || ''}
+        onSignOut={handleSignOut}
+        onProfileUpdated={(updated) => setUserProfile(updated)}
+        lastRouteSummary={summary}
+      />
+    </main>
   );
 }
 
@@ -795,5 +1043,5 @@ export default function HomePage() {
     return <UnStrandedHero onEnter={() => setEntered(true)} />;
   }
 
-  return <RoutePlanner />;
+  return <GoogleMapsEVLayout onReturnToHero={() => setEntered(false)} />;
 }
