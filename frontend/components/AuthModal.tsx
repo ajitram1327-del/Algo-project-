@@ -23,30 +23,49 @@ interface AuthModalProps {
 }
 
 const VEHICLE_OPTIONS = [
-  { id: 'nexon_ev_lr', name: 'Tata Nexon EV Long Range (45.0 kWh)', capacity: 45.0 },
-  { id: 'nexon_ev_mr', name: 'Tata Nexon EV Medium Range (30.2 kWh)', capacity: 30.2 },
-  { id: 'punch_ev_lr', name: 'Tata Punch EV Long Range (35.0 kWh)', capacity: 35.0 },
-  { id: 'punch_ev_mr', name: 'Tata Punch EV Medium Range (25.0 kWh)', capacity: 25.0 },
-  { id: 'curvv_ev_55', name: 'Tata Curvv EV Long Range (55.0 kWh)', capacity: 55.0 },
-  { id: 'curvv_ev_45', name: 'Tata Curvv EV Standard Range (45.0 kWh)', capacity: 45.0 },
-  { id: 'tiago_ev_lr', name: 'Tata Tiago EV Long Range (24.0 kWh)', capacity: 24.0 },
+  // 1. TATA MOTORS
   { id: 'tiago_ev_mr', name: 'Tata Tiago EV Medium Range (19.2 kWh)', capacity: 19.2 },
-  { id: 'xuv400_el', name: 'Mahindra XUV400 EL Pro (39.4 kWh)', capacity: 39.4 },
-  { id: 'xuv400_ec', name: 'Mahindra XUV400 EC Pro (34.5 kWh)', capacity: 34.5 },
+  { id: 'tiago_ev_lr', name: 'Tata Tiago EV Long Range (24.0 kWh)', capacity: 24.0 },
+  { id: 'tigor_ev', name: 'Tata Tigor EV (26.0 kWh)', capacity: 26.0 },
+  { id: 'punch_ev_mr', name: 'Tata Punch EV Medium Range (25.0 kWh)', capacity: 25.0 },
+  { id: 'punch_ev_lr', name: 'Tata Punch EV Long Range (35.0 kWh)', capacity: 35.0 },
+  { id: 'nexon_ev_mr', name: 'Tata Nexon EV Medium Range (30.2 kWh)', capacity: 30.2 },
+  { id: 'nexon_ev_max', name: 'Tata Nexon EV Max (40.5 kWh)', capacity: 40.5 },
+  { id: 'nexon_ev_lr', name: 'Tata Nexon EV Long Range (45.0 kWh)', capacity: 45.0 },
+  { id: 'curvv_ev_45', name: 'Tata Curvv EV (45.0 kWh)', capacity: 45.0 },
+  { id: 'curvv_ev_55', name: 'Tata Curvv EV (55.0 kWh)', capacity: 55.0 },
+  { id: 'harrier_ev_65', name: 'Tata Harrier EV RWD (65.0 kWh)', capacity: 65.0 },
+  { id: 'harrier_ev_75', name: 'Tata Harrier EV AWD (75.0 kWh)', capacity: 75.0 },
+
+  // 2. MG MOTOR (JSW MG)
+  { id: 'mg_comet_ev', name: 'MG Comet EV (17.3 kWh)', capacity: 17.3 },
+  { id: 'mg_windsor_38', name: 'MG Windsor EV (38.0 kWh)', capacity: 38.0 },
+  { id: 'mg_windsor_53', name: 'MG Windsor EV Pro (52.9 kWh)', capacity: 52.9 },
   { id: 'mg_zs_ev_50', name: 'MG ZS EV Exclusive (50.3 kWh)', capacity: 50.3 },
-  { id: 'comet_ev', name: 'MG Comet EV (17.3 kWh)', capacity: 17.3 },
-  { id: 'atto3_superior', name: 'BYD Atto 3 Superior/Premium (60.48 kWh)', capacity: 60.48 },
-  { id: 'atto3_dynamic', name: 'BYD Atto 3 Dynamic (49.92 kWh)', capacity: 49.92 },
-  { id: 'byd_seal_premium', name: 'BYD Seal Premium/Performance (82.56 kWh)', capacity: 82.56 },
-  { id: 'byd_seal_dynamic', name: 'BYD Seal Dynamic (61.44 kWh)', capacity: 61.44 },
-  { id: 'hyundai_ioniq_5', name: 'Hyundai Ioniq 5 (72.6 kWh)', capacity: 72.6 },
-  { id: 'kia_ev6_lr', name: 'Kia EV6 Long Range (77.4 kWh)', capacity: 77.4 },
-  { id: 'tesla_model_3_lr', name: 'Tesla Model 3 Long Range (78.1 kWh)', capacity: 78.1 },
-  { id: 'tesla_model_3_sr', name: 'Tesla Model 3 Standard Range (60.0 kWh)', capacity: 60.0 },
-  { id: 'tesla_model_y_lr', name: 'Tesla Model Y Long Range (78.1 kWh)', capacity: 78.1 },
-  { id: 'volvo_ex40', name: 'Volvo EX40 Recharge (82.0 kWh)', capacity: 82.0 },
-  { id: 'bmw_i4', name: 'BMW i4 eDrive40 (83.9 kWh)', capacity: 83.9 },
-  { id: 'mercedes_eqb', name: 'Mercedes-Benz EQB 350 (66.5 kWh)', capacity: 66.5 },
+
+  // 3. MAHINDRA
+  { id: 'xuv400_ec_pro', name: 'Mahindra XUV400 EC Pro (34.5 kWh)', capacity: 34.5 },
+  { id: 'xuv400_el_pro', name: 'Mahindra XUV400 EL Pro (39.4 kWh)', capacity: 39.4 },
+  { id: 'mahindra_be6e_59', name: 'Mahindra BE 6e (59.0 kWh)', capacity: 59.0 },
+  { id: 'mahindra_be6e_79', name: 'Mahindra BE 6e (79.0 kWh)', capacity: 79.0 },
+  { id: 'mahindra_xev9e_79', name: 'Mahindra XEV 9e (79.0 kWh)', capacity: 79.0 },
+
+  // 4. HYUNDAI & KIA
+  { id: 'hyundai_creta_ev', name: 'Hyundai Creta EV (42.0 kWh)', capacity: 42.0 },
+  { id: 'hyundai_ioniq_5', name: 'Hyundai Ioniq 5 RWD (72.6 kWh)', capacity: 72.6 },
+  { id: 'kia_ev6', name: 'Kia EV6 GT-Line AWD (77.4 kWh)', capacity: 77.4 },
+
+  // 5. MARUTI SUZUKI & CITROËN
+  { id: 'citroen_ec3', name: 'Citroën ëC3 (29.2 kWh)', capacity: 29.2 },
+  { id: 'maruti_e_vitara_49', name: 'Maruti Suzuki e Vitara (49.0 kWh)', capacity: 49.0 },
+  { id: 'maruti_e_vitara_61', name: 'Maruti Suzuki e Vitara (61.0 kWh)', capacity: 61.0 },
+
+  // 6. BYD
+  { id: 'byd_atto_3_dyn', name: 'BYD Atto 3 Dynamic (49.92 kWh)', capacity: 49.92 },
+  { id: 'byd_atto_3_sup', name: 'BYD Atto 3 Superior (60.48 kWh)', capacity: 60.48 },
+  { id: 'byd_emax_7', name: 'BYD eMAX 7 MPV (71.8 kWh)', capacity: 71.8 },
+  { id: 'byd_seal_dyn', name: 'BYD Seal Dynamic RWD (61.44 kWh)', capacity: 61.44 },
+  { id: 'byd_seal_prem', name: 'BYD Seal Premium/Perf AWD (82.56 kWh)', capacity: 82.56 },
 ];
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {

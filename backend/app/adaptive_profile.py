@@ -480,6 +480,11 @@ VEHICLE_VARIANTS_DB["atto3_superior"] = VEHICLE_VARIANTS_DB["byd_atto_3_sup"]
 VEHICLE_VARIANTS_DB["byd_seal_dynamic"] = VEHICLE_VARIANTS_DB["byd_seal_dyn"]
 VEHICLE_VARIANTS_DB["byd_seal_premium"] = VEHICLE_VARIANTS_DB["byd_seal_prem"]
 VEHICLE_VARIANTS_DB["kia_ev6_lr"] = VEHICLE_VARIANTS_DB["kia_ev6"]
+VEHICLE_VARIANTS_DB["tata_nexon_ev"] = VEHICLE_VARIANTS_DB["nexon_ev_lr"]
+VEHICLE_VARIANTS_DB["tata_tiago_ev"] = VEHICLE_VARIANTS_DB["tiago_ev_lr"]
+VEHICLE_VARIANTS_DB["mg_zs_ev"] = VEHICLE_VARIANTS_DB["mg_zs_ev_50"]
+VEHICLE_VARIANTS_DB["byd_atto_3"] = VEHICLE_VARIANTS_DB["byd_atto_3_sup"]
+VEHICLE_VARIANTS_DB["byd_seal"] = VEHICLE_VARIANTS_DB["byd_seal_prem"]
 
 
 class CalibrationFactors(BaseModel):
@@ -519,6 +524,8 @@ class TripClosureRecord(BaseModel):
     destination_name: Optional[str] = None
 
 
+import math
+
 def execute_grey_box_calibration(
     user_row: Dict[str, Any],
     predicted_soc: float,
@@ -539,35 +546,29 @@ def execute_grey_box_calibration(
     # 1. Update Driver Aggression Factor
     current_aggression = float(user_row.get("driver_aggression_factor", 1.0))
     if abs(soc_error_pct) > 0.5:
-        correction = (soc_error_pct / 100.0) * 0.4
-        updated_aggression = max(0.80, min(1.35, current_aggression + alpha * correction))
+        correction = (soc_error_pct / 100.0) * 1.5
+        new_aggression = max(0.85, min(1.35, current_aggression + (alpha * correction)))
     else:
-        updated_aggression = current_aggression
+        new_aggression = current_aggression
 
-    # 2. Update Rolling Resistance Offset (Crr)
-    current_crr_offset = float(user_row.get("crr_offset", 0.0))
-    if soc_error_pct > 1.5:
-        updated_crr_offset = min(0.004, current_crr_offset + 0.0003 * alpha)
-    elif soc_error_pct < -1.5:
-        updated_crr_offset = max(-0.002, current_crr_offset - 0.0002 * alpha)
-    else:
-        updated_crr_offset = current_crr_offset
+    # 2. Update Usable Battery Capacity
+    variant = VEHICLE_VARIANTS_DB.get(user_row.get("variant_id"))
+    usable_cap = variant.usable_capacity_kwh if variant else float(user_row.get("calibrated_capacity_kwh", 40.0))
+    actual_soc_delta = max(1.0, initial_soc - actual_soc)
+    inferred_capacity = (gross_energy_kwh / actual_soc_delta) * 100.0
+    inferred_capacity = max(usable_cap * 0.55, min(usable_cap * 1.02, inferred_capacity))
 
-    # 3. Refine Calibrated Usable Capacity (kWh)
-    current_calibrated_kwh = float(user_row.get("calibrated_capacity_kwh", 40.0))
-    actual_soc_drop = max(0.1, initial_soc - actual_soc)
-    inferred_total_capacity = (gross_energy_kwh / (actual_soc_drop / 100.0)) if actual_soc_drop > 2.0 else current_calibrated_kwh
-    inferred_total_capacity = max(15.0, min(120.0, inferred_total_capacity))
-    updated_calibrated_kwh = (1.0 - alpha) * current_calibrated_kwh + alpha * inferred_total_capacity
+    current_capacity = float(user_row.get("calibrated_capacity_kwh", usable_cap))
+    new_capacity = (1.0 - alpha) * current_capacity + (alpha * inferred_capacity)
 
-    # 4. Confidence Score Growth
-    confidence = min(0.95, 0.35 + 0.08 * trips_completed)
+    # 3. Update Confidence Score
+    new_confidence = min(0.98, 0.30 + (0.15 * math.log(trips_completed + 1)))
 
     return {
-        "driver_aggression_factor": round(updated_aggression, 4),
-        "crr_offset": round(updated_crr_offset, 5),
-        "calibrated_capacity_kwh": round(updated_calibrated_kwh, 2),
         "trips_completed": trips_completed,
-        "confidence_score": round(confidence, 2),
         "current_odometer_km": round(new_odometer, 1),
+        "driver_aggression_factor": round(new_aggression, 3),
+        "calibrated_capacity_kwh": round(new_capacity, 2),
+        "confidence_score": round(new_confidence, 2),
+        "updated_at": "now()",
     }
