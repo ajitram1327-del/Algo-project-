@@ -11,6 +11,7 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import RouteJourneyAnimation from "./RouteJourneyAnimation";
 
 // 1. Google Maps-style Blue Dot Beacon with Radar Pulsing Ring
 const liveUserBeaconIcon = L.divIcon({
@@ -150,6 +151,7 @@ interface MapProps {
   userLocation: [number, number] | null;
   routeGeometry?: [number, number][];
   chargers?: ChargerPOI[];
+  journeyRunId?: number;
   onPingLocation: () => void;
   isScanning?: boolean;
 }
@@ -158,6 +160,7 @@ export default function Map({
   userLocation,
   routeGeometry = [],
   chargers = [],
+  journeyRunId = 1,
   onPingLocation,
   isScanning = false,
 }: MapProps) {
@@ -214,6 +217,13 @@ export default function Map({
                 <div className="font-sans text-xs font-bold text-slate-800">Route Destination</div>
               </Popup>
             </Marker>
+
+            {/* Cute animated EV Car traversing the route */}
+            <RouteJourneyAnimation
+              positions={routeGeometry}
+              chargingStops={chargers}
+              journeyRunId={journeyRunId}
+            />
           </>
         )}
 

@@ -30,6 +30,7 @@ export default function UnStrandedApp() {
   const [nearbyChargers, setNearbyChargers] = useState<any[]>([]);
   const [isScanningChargers, setIsScanningChargers] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [journeyRunId, setJourneyRunId] = useState(1);
 
   const [isGarageOpen, setIsGarageOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
@@ -189,6 +190,7 @@ export default function UnStrandedApp() {
       const data = await res.json();
       setRouteResults(data);
       setNearbyChargers(data.planned_stops || []);
+      setJourneyRunId((prev) => prev + 1);
     } catch {
       setRouteResults({
         total_distance_km: 182.4,
@@ -200,6 +202,7 @@ export default function UnStrandedApp() {
           [payload.coords[0], payload.coords[1]],
         ],
       });
+      setJourneyRunId((prev) => prev + 1);
     } finally {
       setIsLoading(false);
     }
@@ -339,6 +342,7 @@ export default function UnStrandedApp() {
         }
         routeGeometry={routeResults?.route_geometry || []}
         chargers={nearbyChargers}
+        journeyRunId={journeyRunId}
         onPingLocation={handlePingLocationAndScanChargers}
         isScanning={isScanningChargers}
       />
