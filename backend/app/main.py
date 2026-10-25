@@ -20,7 +20,7 @@ except ImportError:
     Client = Any
 
 try:
-    from app.physics import UniversalEVPhysicsEngine, RoutePhysicsSummary
+    from app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from app.adaptive_profile import (
         VEHICLE_VARIANTS_DB,
         CalibrationFactors,
@@ -30,7 +30,7 @@ try:
     from services.weather import WeatherService
     from services.telematics_briefing import generate_fleet_briefing
 except ImportError:
-    from backend.app.physics import UniversalEVPhysicsEngine, RoutePhysicsSummary
+    from backend.app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from backend.app.adaptive_profile import (
         VEHICLE_VARIANTS_DB,
         CalibrationFactors,
@@ -76,7 +76,7 @@ class UserSignupRequest(BaseModel):
 
 
 class StreamlinedRouteRequest(BaseModel):
-    user_id: str
+    user_id: str = "user_ajit_1327"
     origin_lat: float
     origin_lon: float
     dest_lat: float
@@ -98,13 +98,41 @@ class TripClosureRecord(BaseModel):
 
 
 class EmergencyDivertRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = "user_ajit_1327"
     current_lat: float
     current_lon: float
     current_soc_percent: float
     passengers: int = 1
+    vehicle_model: Optional[str] = "tata_nexon_ev"
+    ambient_temp_c: Optional[float] = 30.0
 
 
+class RouteSimulationRequest(BaseModel):
+    origin_lat: Optional[float] = None
+    origin_lon: Optional[float] = None
+    dest_lat: Optional[float] = None
+    dest_lon: Optional[float] = None
+    origin: Optional[Any] = None
+    destination: Optional[Any] = None
+    vehicle_model: str = "tata_nexon_ev"
+    passengers: int = 2
+    ambient_temp_c: float = 30.0
+    initial_soc_percent: float = 50.0
+    starting_soc: Optional[float] = None
+    coordinates: Optional[List[List[float]]] = None
+    coord_order: str = "lat_lon_ele"
+    vehicle_age_years: float = 0.0
+    odometer_km: Optional[float] = None
+
+
+class BriefingRequest(BaseModel):
+    vehicle_model: str = "tata_nexon_ev"
+    passengers: int = 2
+    ambient_temp_c: float = 30.0
+    route_summary: dict = {}
+
+
+@app.get("/health")
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "engine": "unstranded-unified-v3.2"}
@@ -114,23 +142,23 @@ async def health_check():
 async def get_vehicles():
     return [
         {
-            "id": v.variant_id,
-            "variant_id": v.variant_id,
+            "id": k,
+            "variant_id": k,
             "name": v.display_name,
             "display_name": v.display_name,
-            "brand": v.brand,
-            "model_name": v.model_name,
-            "trim_name": v.trim_name,
+            "brand": getattr(v, "brand", "") or (v.display_name.split()[0] if v.display_name else "Other"),
+            "model_name": getattr(v, "model_name", v.display_name),
+            "trim_name": getattr(v, "trim_name", v.display_name),
             "nominal_kwh": v.nominal_capacity_kwh,
             "usable_kwh": v.usable_capacity_kwh,
             "battery_kwh": v.usable_capacity_kwh,
             "battery_capacity_kwh": v.nominal_capacity_kwh,
             "chemistry": v.battery_chemistry,
             "curb_weight_kg": v.curb_weight_kg,
-            "max_charge_power_kw": v.max_dc_charge_kw,
-            "max_regen_kw": v.max_regen_kw,
+            "max_charge_power_kw": getattr(v, "max_charge_power_kw", 50.0),
+            "max_regen_kw": getattr(v, "max_regen_power_kw", 30.0),
         }
-        for v in VEHICLE_VARIANTS_DB.values()
+        for k, v in VEHICLE_VARIANTS_DB.items()
     ]
 
 
@@ -261,6 +289,120 @@ async def evaluate_streamlined_route(payload: StreamlinedRouteRequest):
     return res_dict
 
 
+@app.post("/api/route/evaluate")
+async def evaluate_route_endpoint(payload: RouteSimulationRequest):
+    try:
+        soc_start = payload.starting_soc if payload.starting_soc is not None else payload.initial_soc_percent
+
+        orig_lat, orig_lon = payload.origin_lat, payload.origin_lon
+        dest_lat, dest_lon = payload.dest_lat, payload.dest_lon
+
+        if isinstance(payload.origin, (list, tuple)) and len(payload.origin) >= 2:
+            orig_lat, orig_lon = float(payload.origin[0]), float(payload.origin[1])
+        elif isinstance(payload.origin, dict):
+            orig_lat = float(payload.origin.get("lat") or payload.origin.get("latitude") or 0.0)
+            orig_lon = float(payload.origin.get("lon") or payload.origin.get("longitude") or 0.0)
+
+        if isinstance(payload.destination, (list, tuple)) and len(payload.destination) >= 2:
+            dest_lat, dest_lon = float(payload.destination[0]), float(payload.destination[1])
+        elif isinstance(payload.destination, dict):
+            dest_lat = float(payload.destination.get("lat") or payload.destination.get("latitude") or 0.0)
+            dest_lon = float(payload.destination.get("lon") or payload.destination.get("longitude") or 0.0)
+
+        if orig_lat and orig_lon and dest_lat and dest_lon:
+            coords_2d = await geo_service.fetch_route_geometry(orig_lat, orig_lon, dest_lat, dest_lon)
+            if len(coords_2d) < 2:
+                raise HTTPException(status_code=503, detail="Route could not be retrieved")
+
+            mid_lat = (orig_lat + dest_lat) / 2.0
+            mid_lon = (orig_lon + dest_lon) / 2.0
+
+            elevations, candidate_chargers, weather_profile = await asyncio.gather(
+                geo_service.fetch_elevation_profile(coords_2d),
+                geo_service.fetch_chargers_along_corridor(mid_lat, mid_lon, route_coords=coords_2d),
+                weather_service.fetch_corridor_weather(coords_2d),
+            )
+            coords_3d = [[lat, lon, ele] for (lat, lon), ele in zip(coords_2d, elevations)]
+        elif payload.coordinates and len(payload.coordinates) >= 2:
+            coords_3d = payload.coordinates
+            coords_2d = [(pt[0], pt[1]) for pt in coords_3d]
+            mid_lat = sum(pt[0] for pt in coords_2d) / len(coords_2d)
+            mid_lon = sum(pt[1] for pt in coords_2d) / len(coords_2d)
+
+            candidate_chargers, weather_profile = await asyncio.gather(
+                geo_service.fetch_chargers_along_corridor(mid_lat, mid_lon, route_coords=coords_2d),
+                weather_service.fetch_corridor_weather(coords_2d),
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid origin or destination coordinates")
+
+        engine = UniversalEVPhysicsEngine(
+            vehicle_model_id=payload.vehicle_model,
+            passengers=payload.passengers,
+            ambient_temp_c=payload.ambient_temp_c,
+            vehicle_age_years=payload.vehicle_age_years,
+            odometer_km=payload.odometer_km,
+        )
+
+        physics_report = engine.evaluate_route(
+            coordinates_3d=coords_3d,
+            weather_profile=weather_profile,
+            coord_order=payload.coord_order,
+            initial_soc_percent=soc_start,
+            candidate_chargers=candidate_chargers,
+        )
+
+        briefing_data = {
+            "vehicle_name": getattr(engine.specs, "name", getattr(engine.specs, "display_name", "EV")),
+            "passengers": payload.passengers,
+            "ambient_temp_c": payload.ambient_temp_c,
+            "total_distance_km": physics_report.total_distance_km,
+            "net_energy_kwh": physics_report.net_energy_kwh,
+            "gross_regenerated_kwh": physics_report.gross_regenerated_kwh,
+            "max_uphill_gradient_percent": physics_report.max_uphill_gradient_percent,
+            "max_downhill_gradient_percent": physics_report.max_downhill_gradient_percent,
+            "final_soc_percent": physics_report.final_soc_percent,
+            "reserve_breached": physics_report.reserve_breached,
+        }
+
+        response = physics_report.model_dump()
+        response["driver_briefing"] = generate_fleet_briefing(briefing_data)
+        response["route_geometry"] = coords_2d
+        response["route_coordinates"] = [[pt[1], pt[0]] for pt in coords_2d]
+        response["available_chargers"] = candidate_chargers
+        response["charging_stops"] = [stop.model_dump() for stop in physics_report.planned_stops]
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Simulation error: {str(e)}")
+
+
+@app.post("/api/route/briefing")
+def get_briefing(req: BriefingRequest):
+    if req.vehicle_model in VEHICLE_VARIANTS_DB:
+        vehicle_name = VEHICLE_VARIANTS_DB[req.vehicle_model].display_name
+    else:
+        vehicle = EV_MODELS.get(req.vehicle_model, EV_MODELS["tata_nexon_ev"])
+        vehicle_name = vehicle.name
+
+    briefing_data = {
+        "vehicle_name": vehicle_name,
+        "passengers": req.passengers,
+        "ambient_temp_c": req.ambient_temp_c,
+        "total_distance_km": req.route_summary.get("total_distance_km", 0.0),
+        "net_energy_kwh": req.route_summary.get("net_energy_kwh", 0.0),
+        "gross_regenerated_kwh": req.route_summary.get("gross_regenerated_kwh", 0.0),
+        "max_uphill_gradient_percent": req.route_summary.get("max_uphill_gradient_percent", 0.0),
+        "max_downhill_gradient_percent": req.route_summary.get("max_downhill_gradient_percent", 0.0),
+        "final_soc_percent": req.route_summary.get("final_soc_percent", 0.0),
+        "reserve_breached": req.route_summary.get("reserve_breached", False),
+        "planned_stops": req.route_summary.get("planned_stops", req.route_summary.get("charging_stops", [])),
+    }
+    return {"briefing": generate_fleet_briefing(briefing_data)}
+
+
 @app.post("/api/trip/close")
 async def close_trip_and_calibrate(payload: TripClosureRecord):
     profile = await get_profile(payload.user_id)
@@ -298,14 +440,17 @@ async def close_trip_and_calibrate(payload: TripClosureRecord):
 
 @app.post("/api/route/emergency-divert")
 async def emergency_divert(payload: EmergencyDivertRequest):
-    profile = await get_profile(payload.user_id)
-    variant = VEHICLE_VARIANTS_DB.get(profile["variant_id"], VEHICLE_VARIANTS_DB.get("nexon_ev_lr"))
+    uid = payload.user_id or "user_ajit_1327"
+    profile = await get_profile(uid)
+    variant_key = payload.vehicle_model or profile.get("variant_id", "nexon_ev_lr")
+    variant = VEHICLE_VARIANTS_DB.get(variant_key, VEHICLE_VARIANTS_DB.get("nexon_ev_lr"))
+
     calibration = CalibrationFactors(
-        driver_aggression_factor=profile["driver_aggression_factor"],
-        crr_offset=profile["crr_offset"],
-        calibrated_capacity_kwh=profile["calibrated_capacity_kwh"],
-        trips_completed=profile["trips_completed"],
-        confidence_score=profile["confidence_score"],
+        driver_aggression_factor=profile.get("driver_aggression_factor", 1.0),
+        crr_offset=profile.get("crr_offset", 0.0),
+        calibrated_capacity_kwh=profile.get("calibrated_capacity_kwh", variant.usable_capacity_kwh),
+        trips_completed=profile.get("trips_completed", 0),
+        confidence_score=profile.get("confidence_score", 0.35),
     )
 
     chargers = await geo_service.fetch_chargers_along_corridor(payload.current_lat, payload.current_lon, radius_m=35000)
@@ -316,7 +461,7 @@ async def emergency_divert(payload: EmergencyDivertRequest):
         variant_specs=variant,
         calibration=calibration,
         passengers=payload.passengers,
-        ambient_temp_c=30.0,
+        ambient_temp_c=payload.ambient_temp_c or 30.0,
     )
 
     results = []
