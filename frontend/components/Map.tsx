@@ -61,6 +61,15 @@ const destMarkerIcon = L.divIcon({
 
 function MapBoundsSynchronizer({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   const map = useMap();
+
+  useEffect(() => {
+    // Invalidate size on initial mount and on window resize to ensure all tiles render
+    map.invalidateSize();
+    const handleResize = () => map.invalidateSize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [map]);
+
   useEffect(() => {
     if (bounds) {
       try {
@@ -173,8 +182,8 @@ export default function Map({
         className="w-full h-full z-0 bg-slate-100"
       >
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={19}
         />
 
