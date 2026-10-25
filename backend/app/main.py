@@ -437,7 +437,7 @@ async def close_trip_and_calibrate(payload: TripClosureRecord):
         except Exception:
             pass
 
-    return update_data
+    return profile
 
 
 @app.post("/api/route/emergency-divert")

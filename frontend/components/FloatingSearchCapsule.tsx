@@ -3,10 +3,11 @@
 import React, { useState, useRef } from "react";
 
 interface NominatimResult {
-  place_id: number;
+  place_id?: number | string;
+  name?: string;
   display_name: string;
-  lat: string;
-  lon: string;
+  lat: string | number;
+  lon: string | number;
 }
 
 interface DestinationPayload {
@@ -58,15 +59,31 @@ export default function FloatingSearchCapsule({
     setIsSearching(true);
     debounceTimer.current = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-            val
-          )}&countrycodes=in&limit=5&addressdetails=1`
-        );
-        if (res.ok) {
-          const data: NominatimResult[] = await res.json();
-          setSuggestions(data);
+        let results: NominatimResult[] = [];
+        // Try backend geocode proxy first
+        try {
+          const apiRes = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/geocode?q=${encodeURIComponent(
+              val.trim()
+            )}`
+          );
+          if (apiRes.ok) {
+            results = await apiRes.json();
+          }
+        } catch {}
+
+        // Fallback to direct Nominatim if needed
+        if (!results || results.length === 0) {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+              val.trim()
+            )}&countrycodes=in&limit=5&addressdetails=1`
+          );
+          if (res.ok) {
+            results = await res.json();
+          }
         }
+        setSuggestions(results || []);
       } catch {
         setSuggestions([]);
       } finally {
@@ -76,9 +93,9 @@ export default function FloatingSearchCapsule({
   };
 
   const handleSelectPlace = (place: NominatimResult) => {
-    const lat = parseFloat(place.lat);
-    const lon = parseFloat(place.lon);
-    const shortName = place.display_name.split(",")[0];
+    const lat = typeof place.lat === "number" ? place.lat : parseFloat(String(place.lat));
+    const lon = typeof place.lon === "number" ? place.lon : parseFloat(String(place.lon));
+    const shortName = (place.name || place.display_name).split(",")[0];
 
     setSelectedDest({ name: shortName, coords: [lat, lon] });
     setQuery(shortName);
