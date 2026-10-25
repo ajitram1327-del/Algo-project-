@@ -29,6 +29,7 @@ try:
     from services.geography import GeographyService
     from services.weather import WeatherService
     from services.telematics_briefing import generate_fleet_briefing
+    from services.openchargemap import fetch_nearby_opencharge_stations
 except ImportError:
     from backend.app.physics import UniversalEVPhysicsEngine, EV_MODELS, RoutePhysicsSummary
     from backend.app.adaptive_profile import (
@@ -39,6 +40,7 @@ except ImportError:
     from backend.services.geography import GeographyService
     from backend.services.weather import WeatherService
     from backend.services.telematics_briefing import generate_fleet_briefing
+    from backend.services.openchargemap import fetch_nearby_opencharge_stations
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://crnibxrmhljyuhhccpdi.supabase.co")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -501,6 +503,25 @@ async def emergency_divert(payload: EmergencyDivertRequest):
 async def geocode_query(q: str):
     """Search places, cities, and landmarks bounded strictly to India."""
     return await geo_service.search_locations(query=q)
+
+
+@app.get("/api/chargers/nearby")
+async def get_nearby_chargers(
+    lat: float,
+    lon: float,
+    radius_km: float = 25.0,
+):
+    """
+    Pings Open Charge Map API around the user's live coordinates
+    and returns all stations within the radius.
+    """
+    chargers = await fetch_nearby_opencharge_stations(lat=lat, lon=lon, radius_km=radius_km)
+    return {
+        "status": "success",
+        "count": len(chargers),
+        "user_coordinates": [lat, lon],
+        "chargers": chargers,
+    }
 
 
 @app.get("/api/chargers")

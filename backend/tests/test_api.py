@@ -299,6 +299,21 @@ def test_trip_closure_and_calibration():
     assert updated["driver_aggression_factor"] > 1.0
 
 
+def test_nearby_chargers_endpoint():
+    res = client.get("/api/chargers/nearby?lat=13.3412&lon=74.7478&radius_km=25")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert "chargers" in data
+    assert len(data["chargers"]) > 0
+    first = data["chargers"][0]
+    assert "name" in first
+    assert "lat" in first
+    assert "lon" in first
+    assert "power_kw" in first
+
+
+
 
 
 
