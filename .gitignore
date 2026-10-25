@@ -43,3 +43,6 @@ yarn-error.log*
 valhalla/custom_files/*
 !valhalla/custom_files/.gitkeep
 
+
+.vercel
+.env*

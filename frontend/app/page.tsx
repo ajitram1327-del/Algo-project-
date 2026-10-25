@@ -191,9 +191,14 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
             return found ? { ...def, ...found, brand: def.brand } : def;
           });
           setVehicles(merged);
+        } else {
+          setVehicles(DEFAULT_VEHICLES);
         }
       })
-      .catch((err) => console.warn('Using built-in vehicle database:', err));
+      .catch((err) => {
+        console.warn('Using built-in vehicle database fallback:', err);
+        setVehicles(DEFAULT_VEHICLES);
+      });
   }, []);
 
   // Group unique models by Brand for clean <optgroup> rendering (Step 1)
@@ -212,7 +217,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
     }));
   }, [vehicles]);
 
-  const totalModelCount = useMemo(() => {
+  const totalModelCount = useMemo<number>(() => {
     return brandGroupedModels.reduce((acc, g) => acc + g.models.length, 0);
   }, [brandGroupedModels]);
 
@@ -248,6 +253,16 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
       setSelectedVehicle(preferred.id);
     }
   };
+
+  // Ensure selectedCarModel is always valid and never blank
+  useEffect(() => {
+    if (brandGroupedModels.length > 0) {
+      const allModels = brandGroupedModels.flatMap((g) => g.models);
+      if (!selectedCarModel || !allModels.includes(selectedCarModel)) {
+        handleCarModelChange(allModels[0]);
+      }
+    }
+  }, [brandGroupedModels, selectedCarModel]);
 
   // Synchronize vehicle selection when authenticated profile is available
   useEffect(() => {
