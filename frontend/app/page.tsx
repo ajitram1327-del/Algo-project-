@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import UnStrandedHero from "../components/UnStrandedHero";
 import FloatingSearchBar from "../components/FloatingSearchBar";
@@ -195,7 +195,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
   }, []);
 
   // Distinct car models list (step 1)
-  const uniqueCarModels = useMemo(() => {
+  const uniqueCarModels = useMemo<string[]>(() => {
     const set = new Set<string>();
     vehicles.forEach((v) => {
       const model = v.model_name || v.name.split(' (')[0];
@@ -205,7 +205,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
   }, [vehicles]);
 
   // Trims available for currently selected car model (step 2)
-  const availableTrims = useMemo(() => {
+  const availableTrims = useMemo<Vehicle[]>(() => {
     return vehicles.filter((v) => {
       const model = v.model_name || v.name.split(' (')[0];
       return model.toLowerCase() === selectedCarModel.toLowerCase();
@@ -649,7 +649,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
                   onChange={(e) => handleCarModelChange(e.target.value)}
                   className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                 >
-                  {uniqueCarModels.map((model) => (
+                  {uniqueCarModels.map((model: string) => (
                     <option key={model} value={model}>
                       {model}
                     </option>
@@ -671,7 +671,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
                     onChange={(e) => setSelectedVehicle(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                   >
-                    {availableTrims.map((t) => {
+                    {availableTrims.map((t: Vehicle) => {
                       const trimLabel =
                         t.trim_name ||
                         t.name.replace(selectedCarModel, '').trim().replace(/^[-–—]\s*/, '') ||
@@ -1038,12 +1038,20 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
             onClick={() => setIsCalibrationModalOpen(true)}
             className="flex items-center gap-2 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full shadow-[0_2px_12px_rgba(0,0,0,0.12)] border border-slate-200 text-xs font-semibold text-slate-800 hover:bg-white transition"
           >
-            <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-[10px]">
-              {currentUser.email?.[0]?.toUpperCase() || 'U'}
-            </div>
+            {currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture ? (
+              <img
+                src={currentUser.user_metadata.avatar_url || currentUser.user_metadata.picture}
+                alt="Avatar"
+                className="w-6 h-6 rounded-full object-cover ring-1 ring-emerald-400 shrink-0"
+              />
+            ) : (
+              <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                {currentUser.email?.[0]?.toUpperCase() || 'U'}
+              </div>
+            )}
             <div className="text-left hidden sm:block">
               <div className="leading-tight font-bold text-slate-900 truncate max-w-[120px]">
-                {currentUser.email?.split('@')[0]}
+                {currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0]}
               </div>
               <div className="text-[10px] text-emerald-600 leading-none">
                 {userProfile ? `${userProfile.driver_aggression_factor.toFixed(2)}x Aggression` : 'Grey-Box Active'}
