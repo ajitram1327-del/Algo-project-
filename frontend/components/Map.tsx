@@ -22,7 +22,9 @@ interface MapProps {
   center?: [number, number];
   zoom?: number;
   coordinates?: [number, number][]; // GeoJSON format: [longitude, latitude]
+  routeGeometry?: [number, number][]; // Coordinates: [lat, lon] or [lon, lat]
   chargingStops?: any[];
+  chargers?: any[];
   originName?: string;
   destinationName?: string;
   originCoords?: [number, number]; // [lng, lat]
@@ -31,6 +33,7 @@ interface MapProps {
   userLocation?: [number, number] | null; // [lat, lon]
   emergencyStations?: EmergencyStationMarker[];
   onRecenter?: () => void;
+  onPingLocation?: () => void;
 }
 
 // Controller to smoothly fit map bounds to route geometry and auto-resize with layout changes
@@ -193,7 +196,9 @@ export default function RouteMap({
   center = [13.3412, 74.7478],
   zoom = 13,
   coordinates,
+  routeGeometry,
   chargingStops = [],
+  chargers = [],
   originName = "Manipal",
   destinationName = "Malpe Beach",
   originCoords,
@@ -202,27 +207,48 @@ export default function RouteMap({
   userLocation = null,
   emergencyStations = [],
   onRecenter,
+  onPingLocation,
 }: MapProps) {
   const [activeLayerIndex, setActiveLayerIndex] = useState(0);
 
+  const rawRoute = routeGeometry || coordinates;
   const activeCoordinates = useMemo(
-    () => (coordinates && coordinates.length >= 2 ? coordinates : []),
-    [coordinates]
+    () => (rawRoute && rawRoute.length >= 2 ? rawRoute : []),
+    [rawRoute]
   );
 
-  // Convert GeoJSON [lng, lat] coordinates to Leaflet [lat, lng] positions
+  // Convert route coordinates to Leaflet [lat, lng] positions accurately
   const polylinePositions = useMemo<[number, number][]>(() => {
     return activeCoordinates
       .filter((pt) => Array.isArray(pt) && pt.length >= 2 && !isNaN(pt[0]) && !isNaN(pt[1]))
-      .map(([lng, lat]) => [lat, lng] as [number, number]);
+      .map(([a, b]) => {
+        // If first coord is latitude (< 45 in India/coastal Karnataka), use [a, b]
+        if (a < 45 && b >= 45) return [a, b] as [number, number];
+        // If first coord is longitude (>= 45), invert to [b, a]
+        return [b, a] as [number, number];
+      });
   }, [activeCoordinates]);
+
+  // Combine charging stops and chargers
+  const allStops = useMemo(() => {
+    const combined = [...chargingStops];
+    if (chargers && chargers.length > 0) {
+      chargers.forEach((c) => {
+        if (!combined.some((s) => s.id === c.id || s.name === c.name)) {
+          combined.push(c);
+        }
+      });
+    }
+    return combined;
+  }, [chargingStops, chargers]);
 
   // Fallback center near origin or destination or Manipal if no coordinates provided
   const centerPosition: [number, number] = useMemo(() => {
+    if (userLocation) return userLocation;
     if (polylinePositions.length > 0) return polylinePositions[0];
     if (originCoords && originCoords.length >= 2) return [originCoords[1], originCoords[0]];
     return center;
-  }, [polylinePositions, originCoords, center]);
+  }, [userLocation, polylinePositions, originCoords, center]);
 
   // Custom marker icons
   const originIcon = useMemo(
@@ -316,20 +342,34 @@ export default function RouteMap({
 
   const stationsToDisplay = useMemo(
     () =>
-      chargingStops.map((stop, index) => ({
-        station: {
-          ...stop,
-          id: String(stop.id ?? stop.station_id ?? `planned-stop-${index}`),
-          lat: stop.lat ?? stop.coordinates?.[1],
-          lon: stop.lon ?? stop.coordinates?.[0],
-          arrival_soc: stop.arrival_soc_percent ?? stop.arrival_soc,
-          departure_soc: stop.target_soc_percent ?? stop.departure_soc,
-          charge_time_min:
-            stop.charging_time_minutes ?? stop.charge_time_min,
-        },
-        isRecommended: true,
-      })),
-    [chargingStops]
+      allStops.map((stop, index) => {
+        // Auto-detect coordinate order: in India, latitude is 8-38, longitude is 68-98
+        let lat = stop.lat;
+        let lon = stop.lon;
+        if (lat === undefined && stop.coordinates) {
+          if (stop.coordinates[0] < 45) {
+            lat = stop.coordinates[0];
+            lon = stop.coordinates[1];
+          } else {
+            lon = stop.coordinates[0];
+            lat = stop.coordinates[1];
+          }
+        }
+        return {
+          station: {
+            ...stop,
+            id: String(stop.id ?? stop.station_id ?? `planned-stop-${index}`),
+            lat,
+            lon,
+            arrival_soc: stop.arrival_soc_percent ?? stop.arrival_soc,
+            departure_soc: stop.target_soc_percent ?? stop.departure_soc,
+            charge_time_min:
+              stop.charging_time_minutes ?? stop.charge_time_min,
+          },
+          isRecommended: stop.arrival_soc !== undefined || stop.arrival_soc_percent !== undefined,
+        };
+      }),
+    [allStops]
   );
 
   // Derive origin & dest marker positions in [lat, lng]
@@ -533,13 +573,26 @@ export default function RouteMap({
 
         {/* Live Driver GPS Beacon */}
         {userLocation && (
-          <Marker position={userLocation} icon={liveDriverIcon}>
+          <Marker
+            position={userLocation}
+            icon={liveDriverIcon}
+            eventHandlers={{
+              click: () => {
+                if (onPingLocation) onPingLocation();
+              },
+            }}
+          >
             <Popup>
               <div className="font-mono text-xs p-1">
                 <span className="font-bold text-sky-600 block">Current Vehicle Location</span>
                 <span>
                   {userLocation[0].toFixed(4)}, {userLocation[1].toFixed(4)}
                 </span>
+                {onPingLocation && (
+                  <div className="mt-1 text-[10px] text-slate-500 font-sans">
+                    Click to scan nearby emergency DC chargers
+                  </div>
+                )}
               </div>
             </Popup>
           </Marker>
