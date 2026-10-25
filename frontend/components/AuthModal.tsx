@@ -22,61 +22,95 @@ interface AuthModalProps {
   onAuthSuccess: (user: any) => void;
 }
 
-const VEHICLE_OPTIONS = [
-  // 1. TATA MOTORS
-  { id: 'tiago_ev_mr', name: 'Tata Tiago EV Medium Range (19.2 kWh)', capacity: 19.2 },
-  { id: 'tiago_ev_lr', name: 'Tata Tiago EV Long Range (24.0 kWh)', capacity: 24.0 },
-  { id: 'tigor_ev', name: 'Tata Tigor EV (26.0 kWh)', capacity: 26.0 },
-  { id: 'punch_ev_mr', name: 'Tata Punch EV Medium Range (25.0 kWh)', capacity: 25.0 },
-  { id: 'punch_ev_lr', name: 'Tata Punch EV Long Range (35.0 kWh)', capacity: 35.0 },
-  { id: 'nexon_ev_mr', name: 'Tata Nexon EV Medium Range (30.2 kWh)', capacity: 30.2 },
-  { id: 'nexon_ev_max', name: 'Tata Nexon EV Max (40.5 kWh)', capacity: 40.5 },
-  { id: 'nexon_ev_lr', name: 'Tata Nexon EV Long Range (45.0 kWh)', capacity: 45.0 },
-  { id: 'curvv_ev_45', name: 'Tata Curvv EV (45.0 kWh)', capacity: 45.0 },
-  { id: 'curvv_ev_55', name: 'Tata Curvv EV (55.0 kWh)', capacity: 55.0 },
-  { id: 'harrier_ev_65', name: 'Tata Harrier EV RWD (65.0 kWh)', capacity: 65.0 },
-  { id: 'harrier_ev_75', name: 'Tata Harrier EV AWD (75.0 kWh)', capacity: 75.0 },
-
-  // 2. MG MOTOR (JSW MG)
-  { id: 'mg_comet_ev', name: 'MG Comet EV (17.3 kWh)', capacity: 17.3 },
-  { id: 'mg_windsor_38', name: 'MG Windsor EV (38.0 kWh)', capacity: 38.0 },
-  { id: 'mg_windsor_53', name: 'MG Windsor EV Pro (52.9 kWh)', capacity: 52.9 },
-  { id: 'mg_zs_ev_50', name: 'MG ZS EV Exclusive (50.3 kWh)', capacity: 50.3 },
-
-  // 3. MAHINDRA
-  { id: 'xuv400_ec_pro', name: 'Mahindra XUV400 EC Pro (34.5 kWh)', capacity: 34.5 },
-  { id: 'xuv400_el_pro', name: 'Mahindra XUV400 EL Pro (39.4 kWh)', capacity: 39.4 },
-  { id: 'mahindra_be6e_59', name: 'Mahindra BE 6e (59.0 kWh)', capacity: 59.0 },
-  { id: 'mahindra_be6e_79', name: 'Mahindra BE 6e (79.0 kWh)', capacity: 79.0 },
-  { id: 'mahindra_xev9e_79', name: 'Mahindra XEV 9e (79.0 kWh)', capacity: 79.0 },
-
-  // 4. HYUNDAI & KIA
-  { id: 'hyundai_creta_ev', name: 'Hyundai Creta EV (42.0 kWh)', capacity: 42.0 },
-  { id: 'hyundai_ioniq_5', name: 'Hyundai Ioniq 5 RWD (72.6 kWh)', capacity: 72.6 },
-  { id: 'kia_ev6', name: 'Kia EV6 GT-Line AWD (77.4 kWh)', capacity: 77.4 },
-
-  // 5. MARUTI SUZUKI & CITROEN
-  { id: 'citroen_ec3', name: 'Citroen eC3 (29.2 kWh)', capacity: 29.2 },
-  { id: 'maruti_e_vitara_49', name: 'Maruti Suzuki e Vitara (49.0 kWh)', capacity: 49.0 },
-  { id: 'maruti_e_vitara_61', name: 'Maruti Suzuki e Vitara (61.0 kWh)', capacity: 61.0 },
-
-  // 6. BYD
-  { id: 'byd_atto_3_dyn', name: 'BYD Atto 3 Dynamic (49.92 kWh)', capacity: 49.92 },
-  { id: 'byd_atto_3_sup', name: 'BYD Atto 3 Superior (60.48 kWh)', capacity: 60.48 },
-  { id: 'byd_emax_7', name: 'BYD eMAX 7 MPV (71.8 kWh)', capacity: 71.8 },
-  { id: 'byd_seal_dyn', name: 'BYD Seal Dynamic RWD (61.44 kWh)', capacity: 61.44 },
-  { id: 'byd_seal_prem', name: 'BYD Seal Premium/Perf AWD (82.56 kWh)', capacity: 82.56 },
-];
+import { DEFAULT_VEHICLES } from '../lib/defaultVehicles';
+import { Vehicle } from '../lib/api';
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Signup vehicle configuration fields
+  // Signup vehicle configuration fields (Parent-Child Brand -> Model -> Trim Matrix)
+  const [authBrand, setAuthBrand] = useState('Tata Motors');
+  const [authModel, setAuthModel] = useState('Tata Nexon EV');
   const [variantId, setVariantId] = useState('nexon_ev_lr');
   const [regYear, setRegYear] = useState(2023);
   const [odometer, setOdometer] = useState(15000);
+
+  // Distinct Brands
+  const uniqueBrands = React.useMemo(() => {
+    const set = new Set<string>();
+    DEFAULT_VEHICLES.forEach((v) => {
+      const b = (v.brand || 'Other').trim();
+      if (b) set.add(b);
+    });
+    return Array.from(set);
+  }, []);
+
+  // Models filtered by Brand
+  const brandModels = React.useMemo(() => {
+    const set = new Set<string>();
+    DEFAULT_VEHICLES
+      .filter((v) => (v.brand || 'Other').toLowerCase() === authBrand.toLowerCase())
+      .forEach((v) => {
+        const m = (v.model_name || v.name.split(' (')[0] || '').trim();
+        if (m) set.add(m);
+      });
+    return Array.from(set);
+  }, [authBrand]);
+
+  // Trims filtered by Model
+  const modelTrims = React.useMemo(() => {
+    const list = DEFAULT_VEHICLES.filter((v) => {
+      const m = (v.model_name || v.name.split(' (')[0] || '').trim();
+      return m.toLowerCase() === authModel.trim().toLowerCase();
+    });
+    const seen = new Set<string>();
+    const deduped: Vehicle[] = [];
+    for (const item of list) {
+      const key = `${(item.name || item.display_name || '').toLowerCase()}_${item.battery_capacity_kwh ?? item.battery_kwh}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(item);
+      }
+    }
+    return deduped;
+  }, [authModel]);
+
+  const handleBrandChange = (brandName: string) => {
+    setAuthBrand(brandName);
+    const matchingVehicles = DEFAULT_VEHICLES.filter(
+      (v) => (v.brand || 'Other').toLowerCase() === brandName.toLowerCase()
+    );
+    if (matchingVehicles.length > 0) {
+      const firstCar = matchingVehicles[0];
+      const model = (firstCar.model_name || firstCar.name.split(' (')[0] || '').trim();
+      setAuthModel(model);
+
+      const trims = matchingVehicles.filter(
+        (v) => (v.model_name || v.name.split(' (')[0] || '').trim().toLowerCase() === model.toLowerCase()
+      );
+      const preferred =
+        trims.find((t) => (t.trim_name || t.name).toLowerCase().includes('long range')) ||
+        trims[0] ||
+        firstCar;
+      setVariantId(preferred.id);
+    }
+  };
+
+  const handleModelChange = (modelName: string) => {
+    setAuthModel(modelName);
+    const matching = DEFAULT_VEHICLES.filter((v) => {
+      const m = (v.model_name || v.name.split(' (')[0] || '').trim();
+      return m.toLowerCase() === modelName.trim().toLowerCase();
+    });
+    if (matching.length > 0) {
+      const preferred =
+        matching.find((t) => (t.trim_name || t.name).toLowerCase().includes('long range')) ||
+        matching[0];
+      setVariantId(preferred.id);
+    }
+  };
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -318,16 +352,55 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                   <span>Calibrated Vehicle Profile</span>
                 </div>
 
+                {/* Step 1: EV Brand */}
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">EV Model & Battery</label>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">EV Brand / Make</label>
+                  <select
+                    value={authBrand}
+                    onChange={(e) => handleBrandChange(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
+                  >
+                    {uniqueBrands.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Step 2: EV Model */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
+                    <span>EV Model</span>
+                    <span className="text-[10px] text-sky-600 font-medium">{brandModels.length} models</span>
+                  </label>
+                  <select
+                    value={authModel}
+                    onChange={(e) => handleModelChange(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
+                  >
+                    {brandModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Step 3: Trim / Battery Variant */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
+                    <span>Trim / Battery Capacity</span>
+                    <span className="text-[10px] text-sky-600 font-medium">{modelTrims.length} {modelTrims.length === 1 ? 'option' : 'options'}</span>
+                  </label>
                   <select
                     value={variantId}
                     onChange={(e) => setVariantId(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white"
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
                   >
-                    {VEHICLE_OPTIONS.map((opt) => (
+                    {modelTrims.map((opt) => (
                       <option key={opt.id} value={opt.id}>
-                        {opt.name}
+                        {opt.trim_name || opt.name}
                       </option>
                     ))}
                   </select>

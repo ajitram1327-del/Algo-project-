@@ -6,6 +6,7 @@ export interface Vehicle {
   id: string;
   name: string;
   display_name?: string;
+  brand?: string;
   model_name?: string;
   trim_name?: string;
   battery_kwh: number;

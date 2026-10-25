@@ -1,11 +1,14 @@
 import { Vehicle } from './api';
 
 export const DEFAULT_VEHICLES: Vehicle[] = [
-  // 1. Tata Motors
+  // ==========================
+  // 1. TATA MOTORS
+  // ==========================
   {
     id: 'tiago_ev_mr',
     name: 'Tata Tiago EV Medium Range (19.2 kWh)',
     display_name: 'Tata Tiago EV Medium Range (19.2 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Tiago EV',
     trim_name: 'Medium Range (19.2 kWh)',
     battery_kwh: 18.5,
@@ -19,6 +22,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'tiago_ev_lr',
     name: 'Tata Tiago EV Long Range (24.0 kWh)',
     display_name: 'Tata Tiago EV Long Range (24.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Tiago EV',
     trim_name: 'Long Range (24.0 kWh)',
     battery_kwh: 23.0,
@@ -32,6 +36,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'tigor_ev',
     name: 'Tata Tigor EV (26.0 kWh)',
     display_name: 'Tata Tigor EV (26.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Tigor EV',
     trim_name: 'Standard (26.0 kWh)',
     battery_kwh: 25.0,
@@ -45,6 +50,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'punch_ev_mr',
     name: 'Tata Punch EV Medium Range (25.0 kWh)',
     display_name: 'Tata Punch EV Medium Range (25.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Punch EV',
     trim_name: 'Medium Range (25.0 kWh)',
     battery_kwh: 24.0,
@@ -58,6 +64,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'punch_ev_lr',
     name: 'Tata Punch EV Long Range (35.0 kWh)',
     display_name: 'Tata Punch EV Long Range (35.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Punch EV',
     trim_name: 'Long Range (35.0 kWh)',
     battery_kwh: 33.5,
@@ -71,6 +78,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'nexon_ev_mr',
     name: 'Tata Nexon EV Medium Range (30.2 kWh)',
     display_name: 'Tata Nexon EV Medium Range (30.2 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Nexon EV',
     trim_name: 'Medium Range (30.2 kWh)',
     battery_kwh: 29.0,
@@ -84,6 +92,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'nexon_ev_max',
     name: 'Tata Nexon EV Max (40.5 kWh)',
     display_name: 'Tata Nexon EV Max (40.5 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Nexon EV',
     trim_name: 'Max (40.5 kWh)',
     battery_kwh: 39.0,
@@ -97,6 +106,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'nexon_ev_lr',
     name: 'Tata Nexon EV Long Range (45.0 kWh)',
     display_name: 'Tata Nexon EV Long Range (45.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Nexon EV',
     trim_name: 'Long Range (45.0 kWh)',
     battery_kwh: 43.5,
@@ -110,6 +120,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'curvv_ev_45',
     name: 'Tata Curvv EV (45.0 kWh)',
     display_name: 'Tata Curvv EV (45.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Curvv EV',
     trim_name: 'Creative / Accomplished (45.0 kWh)',
     battery_kwh: 43.5,
@@ -123,6 +134,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'curvv_ev_55',
     name: 'Tata Curvv EV (55.0 kWh)',
     display_name: 'Tata Curvv EV (55.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Curvv EV',
     trim_name: 'Empowered Plus (55.0 kWh)',
     battery_kwh: 53.0,
@@ -136,6 +148,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'harrier_ev_65',
     name: 'Tata Harrier EV RWD (65.0 kWh)',
     display_name: 'Tata Harrier EV RWD (65.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Harrier EV',
     trim_name: 'RWD (65.0 kWh)',
     battery_kwh: 62.0,
@@ -149,6 +162,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'harrier_ev_75',
     name: 'Tata Harrier EV AWD (75.0 kWh)',
     display_name: 'Tata Harrier EV AWD (75.0 kWh)',
+    brand: 'Tata Motors',
     model_name: 'Tata Harrier EV',
     trim_name: 'AWD (75.0 kWh)',
     battery_kwh: 72.0,
@@ -159,11 +173,14 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     max_regen_kw: 75.0,
   },
 
-  // 2. MG Motor
+  // ==========================
+  // 2. MG MOTOR (JSW MG)
+  // ==========================
   {
     id: 'mg_comet_ev',
     name: 'MG Comet EV (17.3 kWh)',
     display_name: 'MG Comet EV (17.3 kWh)',
+    brand: 'MG Motor',
     model_name: 'MG Comet EV',
     trim_name: 'Standard (17.3 kWh)',
     battery_kwh: 16.5,
@@ -177,6 +194,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'mg_windsor_38',
     name: 'MG Windsor EV (38.0 kWh)',
     display_name: 'MG Windsor EV (38.0 kWh)',
+    brand: 'MG Motor',
     model_name: 'MG Windsor EV',
     trim_name: 'Excite / Exclusive (38.0 kWh)',
     battery_kwh: 36.5,
@@ -190,6 +208,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'mg_windsor_53',
     name: 'MG Windsor EV Pro (52.9 kWh)',
     display_name: 'MG Windsor EV Pro (52.9 kWh)',
+    brand: 'MG Motor',
     model_name: 'MG Windsor EV',
     trim_name: 'Pro (52.9 kWh)',
     battery_kwh: 50.5,
@@ -203,6 +222,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'mg_zs_ev_50',
     name: 'MG ZS EV Exclusive (50.3 kWh)',
     display_name: 'MG ZS EV Exclusive (50.3 kWh)',
+    brand: 'MG Motor',
     model_name: 'MG ZS EV',
     trim_name: 'Exclusive (50.3 kWh)',
     battery_kwh: 48.0,
@@ -213,11 +233,14 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     max_regen_kw: 45.0,
   },
 
-  // 3. Mahindra
+  // ==========================
+  // 3. MAHINDRA
+  // ==========================
   {
     id: 'xuv400_ec_pro',
     name: 'Mahindra XUV400 EC Pro (34.5 kWh)',
     display_name: 'Mahindra XUV400 EC Pro (34.5 kWh)',
+    brand: 'Mahindra',
     model_name: 'Mahindra XUV400',
     trim_name: 'EC Pro (34.5 kWh)',
     battery_kwh: 33.0,
@@ -231,6 +254,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'xuv400_el_pro',
     name: 'Mahindra XUV400 EL Pro (39.4 kWh)',
     display_name: 'Mahindra XUV400 EL Pro (39.4 kWh)',
+    brand: 'Mahindra',
     model_name: 'Mahindra XUV400',
     trim_name: 'EL Pro (39.4 kWh)',
     battery_kwh: 38.0,
@@ -244,6 +268,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'mahindra_be6e_59',
     name: 'Mahindra BE 6e (59.0 kWh)',
     display_name: 'Mahindra BE 6e (59.0 kWh)',
+    brand: 'Mahindra',
     model_name: 'Mahindra BE 6e',
     trim_name: 'Standard (59.0 kWh)',
     battery_kwh: 56.5,
@@ -257,6 +282,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'mahindra_be6e_79',
     name: 'Mahindra BE 6e (79.0 kWh)',
     display_name: 'Mahindra BE 6e (79.0 kWh)',
+    brand: 'Mahindra',
     model_name: 'Mahindra BE 6e',
     trim_name: 'Long Range (79.0 kWh)',
     battery_kwh: 76.0,
@@ -270,6 +296,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'mahindra_xev9e_79',
     name: 'Mahindra XEV 9e (79.0 kWh)',
     display_name: 'Mahindra XEV 9e (79.0 kWh)',
+    brand: 'Mahindra',
     model_name: 'Mahindra XEV 9e',
     trim_name: 'Long Range (79.0 kWh)',
     battery_kwh: 76.0,
@@ -280,11 +307,14 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     max_regen_kw: 75.0,
   },
 
-  // 4. Hyundai & Kia
+  // ==========================
+  // 4. HYUNDAI
+  // ==========================
   {
     id: 'hyundai_creta_ev',
     name: 'Hyundai Creta EV (42.0 kWh)',
     display_name: 'Hyundai Creta EV (42.0 kWh)',
+    brand: 'Hyundai',
     model_name: 'Hyundai Creta EV',
     trim_name: 'Standard (42.0 kWh)',
     battery_kwh: 40.5,
@@ -298,6 +328,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'hyundai_ioniq_5',
     name: 'Hyundai Ioniq 5 RWD (72.6 kWh)',
     display_name: 'Hyundai Ioniq 5 RWD (72.6 kWh)',
+    brand: 'Hyundai',
     model_name: 'Hyundai Ioniq 5',
     trim_name: 'RWD (72.6 kWh)',
     battery_kwh: 70.0,
@@ -307,10 +338,15 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     max_charge_power_kw: 233.0,
     max_regen_kw: 75.0,
   },
+
+  // ==========================
+  // 5. KIA
+  // ==========================
   {
     id: 'kia_ev6',
     name: 'Kia EV6 GT-Line AWD (77.4 kWh)',
     display_name: 'Kia EV6 GT-Line AWD (77.4 kWh)',
+    brand: 'Kia',
     model_name: 'Kia EV6',
     trim_name: 'GT-Line AWD (77.4 kWh)',
     battery_kwh: 74.0,
@@ -321,11 +357,14 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     max_regen_kw: 85.0,
   },
 
-  // 5. Maruti Suzuki & Citroen
+  // ==========================
+  // 6. CITROEN
+  // ==========================
   {
     id: 'citroen_ec3',
     name: 'Citroen eC3 (29.2 kWh)',
     display_name: 'Citroen eC3 (29.2 kWh)',
+    brand: 'Citroen',
     model_name: 'Citroen eC3',
     trim_name: 'Standard (29.2 kWh)',
     battery_kwh: 28.0,
@@ -335,10 +374,15 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     max_charge_power_kw: 30.0,
     max_regen_kw: 25.0,
   },
+
+  // ==========================
+  // 7. MARUTI SUZUKI
+  // ==========================
   {
     id: 'maruti_e_vitara_49',
     name: 'Maruti Suzuki e Vitara (49.0 kWh)',
     display_name: 'Maruti Suzuki e Vitara (49.0 kWh)',
+    brand: 'Maruti Suzuki',
     model_name: 'Maruti Suzuki e Vitara',
     trim_name: 'Standard (49.0 kWh)',
     battery_kwh: 47.0,
@@ -352,6 +396,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'maruti_e_vitara_61',
     name: 'Maruti Suzuki e Vitara (61.0 kWh)',
     display_name: 'Maruti Suzuki e Vitara (61.0 kWh)',
+    brand: 'Maruti Suzuki',
     model_name: 'Maruti Suzuki e Vitara',
     trim_name: 'Extended Range (61.0 kWh)',
     battery_kwh: 58.5,
@@ -362,11 +407,14 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     max_regen_kw: 60.0,
   },
 
-  // 6. BYD
+  // ==========================
+  // 8. BYD
+  // ==========================
   {
     id: 'byd_atto_3_dyn',
     name: 'BYD Atto 3 Dynamic (49.92 kWh)',
     display_name: 'BYD Atto 3 Dynamic (49.92 kWh)',
+    brand: 'BYD',
     model_name: 'BYD Atto 3',
     trim_name: 'Dynamic (49.92 kWh)',
     battery_kwh: 48.0,
@@ -380,6 +428,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'byd_atto_3_sup',
     name: 'BYD Atto 3 Superior (60.48 kWh)',
     display_name: 'BYD Atto 3 Superior (60.48 kWh)',
+    brand: 'BYD',
     model_name: 'BYD Atto 3',
     trim_name: 'Superior / Premium (60.48 kWh)',
     battery_kwh: 58.5,
@@ -393,6 +442,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'byd_emax_7',
     name: 'BYD eMAX 7 MPV (71.8 kWh)',
     display_name: 'BYD eMAX 7 MPV (71.8 kWh)',
+    brand: 'BYD',
     model_name: 'BYD eMAX 7',
     trim_name: 'Superior MPV (71.8 kWh)',
     battery_kwh: 69.0,
@@ -406,6 +456,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'byd_seal_dyn',
     name: 'BYD Seal Dynamic RWD (61.44 kWh)',
     display_name: 'BYD Seal Dynamic RWD (61.44 kWh)',
+    brand: 'BYD',
     model_name: 'BYD Seal',
     trim_name: 'Dynamic RWD (61.44 kWh)',
     battery_kwh: 59.0,
@@ -419,6 +470,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     id: 'byd_seal_prem',
     name: 'BYD Seal Premium/Perf AWD (82.56 kWh)',
     display_name: 'BYD Seal Premium/Perf AWD (82.56 kWh)',
+    brand: 'BYD',
     model_name: 'BYD Seal',
     trim_name: 'Premium / Performance AWD (82.56 kWh)',
     battery_kwh: 79.5,
@@ -427,5 +479,91 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
     curb_weight_kg: 2055.0,
     max_charge_power_kw: 150.0,
     max_regen_kw: 85.0,
+  },
+
+  // ==========================
+  // 9. TESLA
+  // ==========================
+  {
+    id: 'tesla_model_3',
+    name: 'Tesla Model 3 Long Range (78.1 kWh)',
+    display_name: 'Tesla Model 3 Long Range (78.1 kWh)',
+    brand: 'Tesla',
+    model_name: 'Tesla Model 3',
+    trim_name: 'Long Range AWD (78.1 kWh)',
+    battery_kwh: 75.0,
+    battery_capacity_kwh: 78.1,
+    battery_chemistry: 'NMC',
+    curb_weight_kg: 1765.0,
+    max_charge_power_kw: 250.0,
+    max_regen_kw: 70.0,
+  },
+  {
+    id: 'tesla_model_y',
+    name: 'Tesla Model Y Long Range (78.1 kWh)',
+    display_name: 'Tesla Model Y Long Range (78.1 kWh)',
+    brand: 'Tesla',
+    model_name: 'Tesla Model Y',
+    trim_name: 'Long Range AWD (78.1 kWh)',
+    battery_kwh: 75.0,
+    battery_capacity_kwh: 78.1,
+    battery_chemistry: 'NMC',
+    curb_weight_kg: 1980.0,
+    max_charge_power_kw: 250.0,
+    max_regen_kw: 75.0,
+  },
+
+  // ==========================
+  // 10. VOLVO
+  // ==========================
+  {
+    id: 'volvo_ex40',
+    name: 'Volvo EX40 Recharge (82.0 kWh)',
+    display_name: 'Volvo EX40 Recharge (82.0 kWh)',
+    brand: 'Volvo',
+    model_name: 'Volvo EX40',
+    trim_name: 'Recharge Twin AWD (82.0 kWh)',
+    battery_kwh: 78.0,
+    battery_capacity_kwh: 82.0,
+    battery_chemistry: 'NMC',
+    curb_weight_kg: 2040.0,
+    max_charge_power_kw: 200.0,
+    max_regen_kw: 65.0,
+  },
+
+  // ==========================
+  // 11. BMW
+  // ==========================
+  {
+    id: 'bmw_i4',
+    name: 'BMW i4 eDrive40 (83.9 kWh)',
+    display_name: 'BMW i4 eDrive40 (83.9 kWh)',
+    brand: 'BMW',
+    model_name: 'BMW i4',
+    trim_name: 'eDrive40 (83.9 kWh)',
+    battery_kwh: 80.7,
+    battery_capacity_kwh: 83.9,
+    battery_chemistry: 'NMC',
+    curb_weight_kg: 2050.0,
+    max_charge_power_kw: 205.0,
+    max_regen_kw: 80.0,
+  },
+
+  // ==========================
+  // 12. MERCEDES-BENZ
+  // ==========================
+  {
+    id: 'mercedes_eqb',
+    name: 'Mercedes-Benz EQB 350 4MATIC (66.5 kWh)',
+    display_name: 'Mercedes-Benz EQB 350 4MATIC (66.5 kWh)',
+    brand: 'Mercedes-Benz',
+    model_name: 'Mercedes-Benz EQB',
+    trim_name: 'EQB 350 4MATIC (66.5 kWh)',
+    battery_kwh: 64.0,
+    battery_capacity_kwh: 66.5,
+    battery_chemistry: 'NMC',
+    curb_weight_kg: 2175.0,
+    max_charge_power_kw: 100.0,
+    max_regen_kw: 55.0,
   },
 ];

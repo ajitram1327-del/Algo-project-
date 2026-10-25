@@ -137,11 +137,43 @@ async def get_supported_vehicles():
         if not trim or trim.startswith("("):
             trim = f"Standard {trim}".strip()
 
+        # Derive brand
+        brand = getattr(v, "brand", "")
+        if not brand:
+            m = (v.model_name or v.display_name).lower()
+            if m.startswith("tata"):
+                brand = "Tata Motors"
+            elif m.startswith("mg"):
+                brand = "MG Motor"
+            elif m.startswith("mahindra") or "xuv" in m or "be 6e" in m or "xev" in m:
+                brand = "Mahindra"
+            elif m.startswith("hyundai"):
+                brand = "Hyundai"
+            elif m.startswith("kia"):
+                brand = "Kia"
+            elif m.startswith("citroen"):
+                brand = "Citroen"
+            elif m.startswith("maruti"):
+                brand = "Maruti Suzuki"
+            elif m.startswith("byd"):
+                brand = "BYD"
+            elif m.startswith("tesla"):
+                brand = "Tesla"
+            elif m.startswith("volvo"):
+                brand = "Volvo"
+            elif m.startswith("bmw"):
+                brand = "BMW"
+            elif m.startswith("mercedes"):
+                brand = "Mercedes-Benz"
+            else:
+                brand = "Other"
+
         results.append({
             "id": k,
             "variant_id": v.variant_id,
             "name": v.display_name,
             "display_name": v.display_name,
+            "brand": brand,
             "model_name": v.model_name or v.display_name,
             "trim_name": trim,
             "battery_kwh": v.usable_capacity_kwh,

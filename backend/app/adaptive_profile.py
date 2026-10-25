@@ -11,6 +11,7 @@ class VehicleVariant(BaseModel):
     variant_id: str
     display_name: str
     model_name: str
+    brand: str = ""
     nominal_capacity_kwh: float
     usable_capacity_kwh: float
     battery_chemistry: str = "LFP"
@@ -473,6 +474,85 @@ VEHICLE_VARIANTS_DB: Dict[str, VehicleVariant] = {
         frontal_area_m2=2.29,
         max_charge_power_kw=150.0,
         max_regen_power_kw=75.0,
+    ),
+
+    # ==========================
+    # 7. GLOBAL PREMIUM EVS
+    # ==========================
+    "tesla_model_3": VehicleVariant(
+        variant_id="tesla_model_3",
+        display_name="Tesla Model 3 Long Range (78.1 kWh)",
+        model_name="Tesla Model 3",
+        brand="Tesla",
+        nominal_capacity_kwh=78.1,
+        usable_capacity_kwh=75.0,
+        battery_chemistry="NMC",
+        curb_weight_kg=1765.0,
+        drag_coefficient_cd=0.219,
+        frontal_area_m2=2.22,
+        max_charge_power_kw=250.0,
+        max_regen_power_kw=70.0,
+        base_auxiliary_power_w=700.0,
+    ),
+    "tesla_model_y": VehicleVariant(
+        variant_id="tesla_model_y",
+        display_name="Tesla Model Y Long Range (78.1 kWh)",
+        model_name="Tesla Model Y",
+        brand="Tesla",
+        nominal_capacity_kwh=78.1,
+        usable_capacity_kwh=75.0,
+        battery_chemistry="NMC",
+        curb_weight_kg=1980.0,
+        drag_coefficient_cd=0.23,
+        frontal_area_m2=2.54,
+        max_charge_power_kw=250.0,
+        max_regen_power_kw=75.0,
+        base_auxiliary_power_w=800.0,
+    ),
+    "volvo_ex40": VehicleVariant(
+        variant_id="volvo_ex40",
+        display_name="Volvo EX40 Recharge (82.0 kWh)",
+        model_name="Volvo EX40",
+        brand="Volvo",
+        nominal_capacity_kwh=82.0,
+        usable_capacity_kwh=78.0,
+        battery_chemistry="NMC",
+        curb_weight_kg=2040.0,
+        drag_coefficient_cd=0.329,
+        frontal_area_m2=2.56,
+        max_charge_power_kw=200.0,
+        max_regen_power_kw=65.0,
+        base_auxiliary_power_w=850.0,
+    ),
+    "bmw_i4": VehicleVariant(
+        variant_id="bmw_i4",
+        display_name="BMW i4 eDrive40 (83.9 kWh)",
+        model_name="BMW i4",
+        brand="BMW",
+        nominal_capacity_kwh=83.9,
+        usable_capacity_kwh=80.7,
+        battery_chemistry="NMC",
+        curb_weight_kg=2050.0,
+        drag_coefficient_cd=0.24,
+        frontal_area_m2=2.31,
+        max_charge_power_kw=205.0,
+        max_regen_power_kw=80.0,
+        base_auxiliary_power_w=850.0,
+    ),
+    "mercedes_eqb": VehicleVariant(
+        variant_id="mercedes_eqb",
+        display_name="Mercedes-Benz EQB 350 4MATIC (66.5 kWh)",
+        model_name="Mercedes-Benz EQB",
+        brand="Mercedes-Benz",
+        nominal_capacity_kwh=66.5,
+        usable_capacity_kwh=64.0,
+        battery_chemistry="NMC",
+        curb_weight_kg=2175.0,
+        drag_coefficient_cd=0.28,
+        frontal_area_m2=2.53,
+        max_charge_power_kw=100.0,
+        max_regen_power_kw=55.0,
+        base_auxiliary_power_w=900.0,
     ),
 }
 
