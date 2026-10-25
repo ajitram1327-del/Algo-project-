@@ -55,8 +55,8 @@ const VEHICLE_OPTIONS = [
   { id: 'hyundai_ioniq_5', name: 'Hyundai Ioniq 5 RWD (72.6 kWh)', capacity: 72.6 },
   { id: 'kia_ev6', name: 'Kia EV6 GT-Line AWD (77.4 kWh)', capacity: 77.4 },
 
-  // 5. MARUTI SUZUKI & CITROËN
-  { id: 'citroen_ec3', name: 'Citroën ëC3 (29.2 kWh)', capacity: 29.2 },
+  // 5. MARUTI SUZUKI & CITROEN
+  { id: 'citroen_ec3', name: 'Citroen eC3 (29.2 kWh)', capacity: 29.2 },
   { id: 'maruti_e_vitara_49', name: 'Maruti Suzuki e Vitara (49.0 kWh)', capacity: 49.0 },
   { id: 'maruti_e_vitara_61', name: 'Maruti Suzuki e Vitara (61.0 kWh)', capacity: 61.0 },
 

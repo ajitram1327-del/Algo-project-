@@ -20,6 +20,7 @@ import {
   RouteSummary,
   GeocodeLocation,
 } from '../lib/api';
+import { DEFAULT_VEHICLES } from '../lib/defaultVehicles';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -94,7 +95,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
   const [mapZoom, setMapZoom] = useState<number>(13);
 
   // Vehicle & Route Parameters
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(DEFAULT_VEHICLES);
   const [selectedCarModel, setSelectedCarModel] = useState<string>('Tata Nexon EV');
   const [selectedVehicle, setSelectedVehicle] = useState<string>('nexon_ev_lr');
   const [passengers, setPassengers] = useState<number>(2);
@@ -182,23 +183,18 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
   useEffect(() => {
     fetchVehicles()
       .then((data) => {
-        setVehicles(data);
-        if (data.length > 0) {
-          const defaultCar =
-            data.find((v) => (v.model_name || v.name).includes('Nexon')) || data[0];
-          const model = defaultCar.model_name || defaultCar.name.split(' (')[0];
-          setSelectedCarModel(model);
-          setSelectedVehicle(defaultCar.id);
+        if (data && data.length > 0) {
+          setVehicles(data);
         }
       })
-      .catch((err) => console.error('Failed to load vehicles', err));
+      .catch((err) => console.warn('Using built-in vehicle database:', err));
   }, []);
 
   // Distinct car models list (step 1)
   const uniqueCarModels = useMemo<string[]>(() => {
     const set = new Set<string>();
     vehicles.forEach((v) => {
-      const model = v.model_name || v.name.split(' (')[0];
+      const model = (v.model_name || v.name.split(' (')[0] || '').trim();
       if (model) set.add(model);
     });
     return Array.from(set);
@@ -206,17 +202,28 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
 
   // Trims available for currently selected car model (step 2)
   const availableTrims = useMemo<Vehicle[]>(() => {
-    return vehicles.filter((v) => {
-      const model = v.model_name || v.name.split(' (')[0];
-      return model.toLowerCase() === selectedCarModel.toLowerCase();
+    const list = vehicles.filter((v) => {
+      const model = (v.model_name || v.name.split(' (')[0] || '').trim();
+      return model.toLowerCase() === selectedCarModel.trim().toLowerCase();
     });
+    // Deduplicate any trims with the exact same display name and capacity
+    const seen = new Set<string>();
+    const deduped: Vehicle[] = [];
+    for (const item of list) {
+      const key = `${(item.name || item.display_name || '').toLowerCase()}_${item.battery_capacity_kwh ?? item.battery_kwh}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(item);
+      }
+    }
+    return deduped;
   }, [vehicles, selectedCarModel]);
 
   const handleCarModelChange = (modelName: string) => {
     setSelectedCarModel(modelName);
     const matching = vehicles.filter((v) => {
-      const model = v.model_name || v.name.split(' (')[0];
-      return model.toLowerCase() === modelName.toLowerCase();
+      const model = (v.model_name || v.name.split(' (')[0] || '').trim();
+      return model.toLowerCase() === modelName.trim().toLowerCase();
     });
     if (matching.length > 0) {
       const preferred =
@@ -225,6 +232,29 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
       setSelectedVehicle(preferred.id);
     }
   };
+
+  const handleTrimChange = (variantId: string) => {
+    setSelectedVehicle(variantId);
+    const found = vehicles.find((v) => v.id === variantId);
+    if (found) {
+      const model = (found.model_name || found.name.split(' (')[0] || '').trim();
+      if (model && model.toLowerCase() !== selectedCarModel.trim().toLowerCase()) {
+        setSelectedCarModel(model);
+      }
+    }
+  };
+
+  // Synchronize vehicle selection when authenticated profile is available
+  useEffect(() => {
+    if (userProfile?.variant_id) {
+      const match = vehicles.find((v) => v.id === userProfile.variant_id);
+      if (match) {
+        setSelectedVehicle(match.id);
+        const m = (match.model_name || match.name.split(' (')[0] || '').trim();
+        if (m) setSelectedCarModel(m);
+      }
+    }
+  }, [userProfile, vehicles]);
 
   // Debounced search for Origin
   const handleOriginChange = (text: string) => {
@@ -326,6 +356,9 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
           dest_lon: destCoords[0],
           current_soc_percent: initialSoc,
           passengers,
+          variant_id: selectedVehicle,
+          vehicle_model: selectedVehicle,
+          ambient_temp_c: tempC,
         });
       } else {
         result = await evaluateRoutePhysics({
@@ -668,7 +701,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
                   </label>
                   <select
                     value={selectedVehicle}
-                    onChange={(e) => setSelectedVehicle(e.target.value)}
+                    onChange={(e) => handleTrimChange(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                   >
                     {availableTrims.map((t: Vehicle) => {

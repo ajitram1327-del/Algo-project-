@@ -26,6 +26,10 @@ class VehicleVariant(BaseModel):
     base_auxiliary_power_w: float = 650.0
 
     @property
+    def name(self) -> str:
+        return self.display_name
+
+    @property
     def battery_capacity_kwh(self) -> float:
         return self.nominal_capacity_kwh
 
@@ -360,12 +364,12 @@ VEHICLE_VARIANTS_DB: Dict[str, VehicleVariant] = {
     ),
 
     # ==========================
-    # 5. MARUTI SUZUKI & CITROËN
+    # 5. MARUTI SUZUKI & CITROEN
     # ==========================
     "citroen_ec3": VehicleVariant(
         variant_id="citroen_ec3",
-        display_name="Citroën ëC3 (29.2 kWh)",
-        model_name="Citroën ëC3",
+        display_name="Citroen eC3 (29.2 kWh)",
+        model_name="Citroen eC3",
         nominal_capacity_kwh=29.2,
         usable_capacity_kwh=28.0,
         battery_chemistry="LFP",
@@ -510,6 +514,9 @@ class StreamlinedRouteRequest(BaseModel):
     dest_lon: float
     current_soc_percent: float
     passengers: int = 1
+    variant_id: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    ambient_temp_c: Optional[float] = 32.0
 
 
 class TripClosureRecord(BaseModel):

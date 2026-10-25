@@ -224,6 +224,9 @@ export const evaluateStreamlinedRoute = async (payload: {
   dest_lon: number;
   current_soc_percent: number;
   passengers?: number;
+  variant_id?: string;
+  vehicle_model?: string;
+  ambient_temp_c?: number;
 }): Promise<RouteSummary & { calibration_status?: any }> => {
   const res = await axios.post(`${API_BASE}/api/route/evaluate-streamlined`, payload);
   return res.data;

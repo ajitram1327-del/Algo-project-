@@ -16,6 +16,8 @@ import math
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
 
+from .adaptive_profile import VEHICLE_VARIANTS_DB
+
 
 class VehicleSpecs(BaseModel):
     name: str
@@ -344,6 +346,8 @@ class UniversalEVPhysicsEngine:
     ):
         if variant_specs is not None:
             self.specs = variant_specs
+        elif vehicle_model_id in VEHICLE_VARIANTS_DB:
+            self.specs = VEHICLE_VARIANTS_DB[vehicle_model_id]
         else:
             self.specs = EV_MODELS.get(vehicle_model_id, EV_MODELS["tata_nexon_ev"])
 

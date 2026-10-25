@@ -261,14 +261,18 @@ async def evaluate_streamlined_route(payload: StreamlinedRouteRequest):
     if not user_row:
         raise HTTPException(status_code=404, detail="User vehicle profile not configured.")
 
-    variant = VEHICLE_VARIANTS_DB.get(user_row["variant_id"])
+    active_variant_id = payload.variant_id or payload.vehicle_model or user_row.get("variant_id")
+    variant = VEHICLE_VARIANTS_DB.get(active_variant_id)
     if not variant:
-        variant = VEHICLE_VARIANTS_DB["nexon_ev_lr"]
+        variant = VEHICLE_VARIANTS_DB.get(user_row.get("variant_id"), VEHICLE_VARIANTS_DB["nexon_ev_lr"])
+
+    is_user_default = (active_variant_id == user_row.get("variant_id"))
+    calibrated_capacity = user_row.get("calibrated_capacity_kwh", variant.usable_capacity_kwh) if is_user_default else variant.usable_capacity_kwh
 
     calibration = CalibrationFactors(
         driver_aggression_factor=user_row.get("driver_aggression_factor", 1.0),
         crr_offset=user_row.get("crr_offset", 0.0),
-        calibrated_capacity_kwh=user_row.get("calibrated_capacity_kwh", variant.usable_capacity_kwh),
+        calibrated_capacity_kwh=calibrated_capacity,
         trips_completed=user_row.get("trips_completed", 0),
         confidence_score=user_row.get("confidence_score", 0.35),
     )
@@ -434,12 +438,14 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
             )
 
         # Step 4: Run continuous multi-force physics & RCSP constraint solver
+        variant = VEHICLE_VARIANTS_DB.get(payload.vehicle_model)
         engine = UniversalEVPhysicsEngine(
             vehicle_model_id=payload.vehicle_model,
             passengers=payload.passengers,
             ambient_temp_c=payload.ambient_temp_c,
             vehicle_age_years=payload.vehicle_age_years,
             odometer_km=payload.odometer_km,
+            variant_specs=variant,
         )
 
         physics_report: RoutePhysicsSummary = engine.evaluate_route(
@@ -452,7 +458,7 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
 
         # Step 5: Generate instant, deterministic telematics briefing
         briefing_data = {
-            "vehicle_name": engine.specs.name,
+            "vehicle_name": getattr(engine.specs, "name", getattr(engine.specs, "display_name", "EV")),
             "passengers": payload.passengers,
             "ambient_temp_c": payload.ambient_temp_c,
             "total_distance_km": physics_report.total_distance_km,
@@ -525,12 +531,14 @@ async def emergency_divert_endpoint(payload: EmergencyDivertRequest):
         chargers_with_dist.sort(key=lambda x: x[0])
         candidate_chargers = [c[1] for c in chargers_with_dist[:8]]
 
+        variant = VEHICLE_VARIANTS_DB.get(payload.vehicle_model)
         engine = UniversalEVPhysicsEngine(
             vehicle_model_id=payload.vehicle_model,
             passengers=payload.passengers,
             ambient_temp_c=payload.ambient_temp_c,
             vehicle_age_years=payload.vehicle_age_years,
             odometer_km=payload.odometer_km,
+            variant_specs=variant,
         )
 
         results: List[EmergencyChargerCandidate] = []
