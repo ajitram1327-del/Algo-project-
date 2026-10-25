@@ -230,12 +230,12 @@ export default function RouteMap({
       L.divIcon({
         className: "origin-marker",
         html: `
-          <div style="background-color: #10b981; color: white; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; box-shadow: 0 4px 10px rgba(16,185,129,0.5); border: 2.5px solid #ffffff;">
-            A
+          <div style="background-color: #10b981; color: white; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 8px rgba(16,185,129,0.5); border: 2.5px solid #ffffff;">
+            <div style="width: 8px; height: 8px; border-radius: 50%; background-color: #ffffff;"></div>
           </div>
         `,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
       }),
     []
   );
@@ -245,12 +245,14 @@ export default function RouteMap({
       L.divIcon({
         className: "dest-marker",
         html: `
-          <div style="background-color: #3b82f6; color: white; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; box-shadow: 0 4px 10px rgba(59,130,246,0.5); border: 2.5px solid #ffffff;">
-            B
+          <div style="background-color: #ef4444; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 8px rgba(239,68,68,0.5); border: 2.5px solid #ffffff;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+            </svg>
           </div>
         `,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
       }),
     []
   );
@@ -418,8 +420,8 @@ export default function RouteMap({
             />
           )}
 
-        {/* Origin Marker */}
-        {originMarkerPos && (
+        {/* Origin Marker (only shown when route is computed) */}
+        {coordinates && coordinates.length >= 2 && originMarkerPos && (
           <Marker position={originMarkerPos} icon={originIcon}>
             <Popup>
               <div className="text-slate-900 p-1 font-sans">
@@ -435,8 +437,8 @@ export default function RouteMap({
           </Marker>
         )}
 
-        {/* Destination Marker */}
-        {destMarkerPos && (
+        {/* Destination Marker (only shown when route is computed) */}
+        {coordinates && coordinates.length >= 2 && destMarkerPos && (
           <Marker position={destMarkerPos} icon={destinationIcon}>
             <Popup>
               <div className="text-slate-900 p-1 font-sans">
