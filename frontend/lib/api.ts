@@ -4,6 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface Vehicle {
   id: string;
+  variant_id?: string;
   name: string;
   display_name?: string;
   brand?: string;

@@ -30,34 +30,31 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  // Signup vehicle configuration fields (Parent-Child Brand -> Model -> Trim Matrix)
-  const [authBrand, setAuthBrand] = useState('Tata Motors');
+  // Signup vehicle configuration fields (2-Step Car Model & Trim Selector)
   const [authModel, setAuthModel] = useState('Tata Nexon EV');
   const [variantId, setVariantId] = useState('nexon_ev_lr');
   const [regYear, setRegYear] = useState(2023);
   const [odometer, setOdometer] = useState(15000);
 
-  // Distinct Brands
-  const uniqueBrands = React.useMemo(() => {
-    const set = new Set<string>();
+  // Group unique models by Brand for optgroups (All 25 models across all 12 brands)
+  const brandGroupedModels = React.useMemo<{ brand: string; models: string[] }[]>(() => {
+    const map = new Map<string, Set<string>>();
     DEFAULT_VEHICLES.forEach((v) => {
-      const b = (v.brand || 'Other').trim();
-      if (b) set.add(b);
+      const brand = (v.brand || 'Other').trim();
+      const model = (v.model_name || v.name.split(' (')[0] || '').trim();
+      if (!model) return;
+      if (!map.has(brand)) map.set(brand, new Set());
+      map.get(brand)!.add(model);
     });
-    return Array.from(set);
+    return Array.from(map.entries()).map(([brand, set]) => ({
+      brand,
+      models: Array.from(set),
+    }));
   }, []);
 
-  // Models filtered by Brand
-  const brandModels = React.useMemo(() => {
-    const set = new Set<string>();
-    DEFAULT_VEHICLES
-      .filter((v) => (v.brand || 'Other').toLowerCase() === authBrand.toLowerCase())
-      .forEach((v) => {
-        const m = (v.model_name || v.name.split(' (')[0] || '').trim();
-        if (m) set.add(m);
-      });
-    return Array.from(set);
-  }, [authBrand]);
+  const totalModelCount = React.useMemo(() => {
+    return brandGroupedModels.reduce((acc, g) => acc + g.models.length, 0);
+  }, [brandGroupedModels]);
 
   // Trims filtered by Model
   const modelTrims = React.useMemo(() => {
@@ -76,27 +73,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     }
     return deduped;
   }, [authModel]);
-
-  const handleBrandChange = (brandName: string) => {
-    setAuthBrand(brandName);
-    const matchingVehicles = DEFAULT_VEHICLES.filter(
-      (v) => (v.brand || 'Other').toLowerCase() === brandName.toLowerCase()
-    );
-    if (matchingVehicles.length > 0) {
-      const firstCar = matchingVehicles[0];
-      const model = (firstCar.model_name || firstCar.name.split(' (')[0] || '').trim();
-      setAuthModel(model);
-
-      const trims = matchingVehicles.filter(
-        (v) => (v.model_name || v.name.split(' (')[0] || '').trim().toLowerCase() === model.toLowerCase()
-      );
-      const preferred =
-        trims.find((t) => (t.trim_name || t.name).toLowerCase().includes('long range')) ||
-        trims[0] ||
-        firstCar;
-      setVariantId(preferred.id);
-    }
-  };
 
   const handleModelChange = (modelName: string) => {
     setAuthModel(modelName);
@@ -352,59 +328,59 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                   <span>Calibrated Vehicle Profile</span>
                 </div>
 
-                {/* Step 1: EV Brand */}
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">EV Brand / Make</label>
-                  <select
-                    value={authBrand}
-                    onChange={(e) => handleBrandChange(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
-                  >
-                    {uniqueBrands.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Step 2: EV Model */}
+                {/* Step 1: EV Model (All 25 models grouped by Brand) */}
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
                     <span>EV Model</span>
-                    <span className="text-[10px] text-sky-600 font-medium">{brandModels.length} models</span>
+                    <span className="text-[10px] text-sky-600 font-semibold">{totalModelCount} Models</span>
                   </label>
                   <select
                     value={authModel}
                     onChange={(e) => handleModelChange(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
+                    className="w-full px-2.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
                   >
-                    {brandModels.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
+                    {brandGroupedModels.map((group) => (
+                      <optgroup key={group.brand} label={group.brand}>
+                        {group.models.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </div>
 
-                {/* Step 3: Trim / Battery Variant */}
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
-                    <span>Trim / Battery Capacity</span>
-                    <span className="text-[10px] text-sky-600 font-medium">{modelTrims.length} {modelTrims.length === 1 ? 'option' : 'options'}</span>
-                  </label>
-                  <select
-                    value={variantId}
-                    onChange={(e) => setVariantId(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
-                  >
-                    {modelTrims.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.trim_name || opt.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Step 2: Trim / Battery Variant */}
+                {modelTrims.length > 0 && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
+                      <span>Trim / Battery Capacity</span>
+                      <span className="text-[10px] text-sky-600 font-semibold">
+                        {modelTrims.length} {modelTrims.length === 1 ? 'option' : 'options'}
+                      </span>
+                    </label>
+                    <select
+                      value={variantId}
+                      onChange={(e) => setVariantId(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white cursor-pointer"
+                    >
+                      {modelTrims.map((opt) => {
+                        const trimLabel =
+                          opt.trim_name ||
+                          opt.name.replace(authModel, '').trim().replace(/^[-–—]\s*/, '') ||
+                          'Standard';
+                        const hasKwh = trimLabel.toLowerCase().includes('kwh');
+                        const kwh = opt.battery_capacity_kwh ?? opt.battery_kwh;
+                        return (
+                          <option key={opt.id} value={opt.id}>
+                            {hasKwh ? trimLabel : `${trimLabel} (${kwh} kWh)`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>

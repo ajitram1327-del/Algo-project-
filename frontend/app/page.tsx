@@ -184,36 +184,39 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
   useEffect(() => {
     fetchVehicles()
       .then((data) => {
-        if (data && data.length > 0) {
-          setVehicles(data);
+        if (Array.isArray(data) && data.length > 0) {
+          // Merge with DEFAULT_VEHICLES so brand & model_name are never lost
+          const merged = DEFAULT_VEHICLES.map((def) => {
+            const found = data.find((d) => d.id === def.id || d.variant_id === def.id);
+            return found ? { ...def, ...found, brand: def.brand } : def;
+          });
+          setVehicles(merged);
         }
       })
       .catch((err) => console.warn('Using built-in vehicle database:', err));
   }, []);
 
-  // Distinct brands list (parent tier 1)
-  const uniqueBrands = useMemo<string[]>(() => {
-    const set = new Set<string>();
+  // Group unique models by Brand for clean <optgroup> rendering (Step 1)
+  const brandGroupedModels = useMemo<{ brand: string; models: string[] }[]>(() => {
+    const map = new Map<string, Set<string>>();
     vehicles.forEach((v) => {
-      const b = (v.brand || 'Other').trim();
-      if (b) set.add(b);
+      const brand = (v.brand || 'Other').trim();
+      const model = (v.model_name || v.name.split(' (')[0] || '').trim();
+      if (!model) return;
+      if (!map.has(brand)) map.set(brand, new Set());
+      map.get(brand)!.add(model);
     });
-    return Array.from(set);
+    return Array.from(map.entries()).map(([brand, set]) => ({
+      brand,
+      models: Array.from(set),
+    }));
   }, [vehicles]);
 
-  // Models filtered strictly for selected brand (child tier 2)
-  const brandModels = useMemo<string[]>(() => {
-    const set = new Set<string>();
-    vehicles
-      .filter((v) => (v.brand || 'Other').toLowerCase() === selectedBrand.toLowerCase())
-      .forEach((v) => {
-        const model = (v.model_name || v.name.split(' (')[0] || '').trim();
-        if (model) set.add(model);
-      });
-    return Array.from(set);
-  }, [vehicles, selectedBrand]);
+  const totalModelCount = useMemo(() => {
+    return brandGroupedModels.reduce((acc, g) => acc + g.models.length, 0);
+  }, [brandGroupedModels]);
 
-  // Trims available for currently selected car model (child tier 3)
+  // Trims available for currently selected car model (Step 2)
   const availableTrims = useMemo<Vehicle[]>(() => {
     const list = vehicles.filter((v) => {
       const model = (v.model_name || v.name.split(' (')[0] || '').trim();
@@ -232,27 +235,6 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
     return deduped;
   }, [vehicles, selectedCarModel]);
 
-  const handleBrandChange = (brandName: string) => {
-    setSelectedBrand(brandName);
-    const matchingVehicles = vehicles.filter(
-      (v) => (v.brand || 'Other').toLowerCase() === brandName.toLowerCase()
-    );
-    if (matchingVehicles.length > 0) {
-      const firstCar = matchingVehicles[0];
-      const model = (firstCar.model_name || firstCar.name.split(' (')[0] || '').trim();
-      setSelectedCarModel(model);
-
-      const modelTrims = matchingVehicles.filter(
-        (v) => (v.model_name || v.name.split(' (')[0] || '').trim().toLowerCase() === model.toLowerCase()
-      );
-      const preferred =
-        modelTrims.find((t) => (t.trim_name || t.name).toLowerCase().includes('long range')) ||
-        modelTrims[0] ||
-        firstCar;
-      setSelectedVehicle(preferred.id);
-    }
-  };
-
   const handleCarModelChange = (modelName: string) => {
     setSelectedCarModel(modelName);
     const matching = vehicles.filter((v) => {
@@ -260,27 +242,10 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
       return model.toLowerCase() === modelName.trim().toLowerCase();
     });
     if (matching.length > 0) {
-      const b = matching[0].brand;
-      if (b && b !== selectedBrand) setSelectedBrand(b);
-
       const preferred =
         matching.find((t) => (t.trim_name || t.name).toLowerCase().includes('long range')) ||
         matching[0];
       setSelectedVehicle(preferred.id);
-    }
-  };
-
-  const handleTrimChange = (variantId: string) => {
-    setSelectedVehicle(variantId);
-    const found = vehicles.find((v) => v.id === variantId);
-    if (found) {
-      const model = (found.model_name || found.name.split(' (')[0] || '').trim();
-      if (model && model.toLowerCase() !== selectedCarModel.trim().toLowerCase()) {
-        setSelectedCarModel(model);
-      }
-      if (found.brand && found.brand !== selectedBrand) {
-        setSelectedBrand(found.brand);
-      }
     }
   };
 
@@ -710,33 +675,14 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
               </div>
             )}
 
-            {/* Vehicle & Battery Controls: Parent-Child Brand -> Model -> Trim Matrix */}
+            {/* Vehicle & Battery Controls: 2-Step Car Model & Trim Selector */}
             <div className="space-y-2.5 bg-slate-50/60 p-3 rounded-xl border border-slate-200/70 text-xs">
-              {/* Step 1: EV Brand / Manufacturer */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1 uppercase tracking-wide flex items-center justify-between">
-                  <span>EV Brand / Make</span>
-                  <span className="text-[10px] text-slate-400 font-normal">Brand Matrix</span>
-                </label>
-                <select
-                  value={selectedBrand}
-                  onChange={(e) => handleBrandChange(e.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
-                >
-                  {uniqueBrands.map((brand: string) => (
-                    <option key={brand} value={brand}>
-                      {brand}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Step 2: Car Model (Filtered by Brand) */}
+              {/* Step 1: Car Model (Clean Car Names grouped by Brand optgroups) */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1 uppercase tracking-wide flex items-center justify-between">
                   <span>Car Model</span>
-                  <span className="text-[10px] text-blue-600 font-medium">
-                    {brandModels.length} {brandModels.length === 1 ? 'model' : 'models'}
+                  <span className="text-[10px] text-blue-600 font-semibold">
+                    {totalModelCount} Models
                   </span>
                 </label>
                 <select
@@ -744,15 +690,19 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
                   onChange={(e) => handleCarModelChange(e.target.value)}
                   className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                 >
-                  {brandModels.map((model: string) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
+                  {brandGroupedModels.map((group) => (
+                    <optgroup key={group.brand} label={group.brand}>
+                      {group.models.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>
 
-              {/* Step 3: Trim / Battery Variant Dropdown */}
+              {/* Step 2: Trim / Battery Variant Dropdown */}
               {availableTrims.length > 0 && (
                 <div className="animate-in fade-in duration-150">
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1 uppercase tracking-wide flex items-center justify-between">
@@ -763,7 +713,7 @@ function GoogleMapsEVLayout({ onReturnToHero }: { onReturnToHero?: () => void })
                   </label>
                   <select
                     value={selectedVehicle}
-                    onChange={(e) => handleTrimChange(e.target.value)}
+                    onChange={(e) => setSelectedVehicle(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs cursor-pointer"
                   >
                     {availableTrims.map((t: Vehicle) => {
