@@ -158,16 +158,20 @@ export default function UnStrandedApp() {
   };
 
   const handleRouteSubmit = async (payload: {
-    name: string;
-    coords: [number, number];
+    originName: string;
+    originCoords: [number, number];
+    destName: string;
+    destCoords: [number, number];
     startingSoc: number;
     passengers: number;
   }) => {
     setIsLoading(true);
     setLastStartingSoc(payload.startingSoc);
     try {
-      const originLat = location.lat || 13.3412;
-      const originLon = location.lon || 74.7478;
+      const originLat = payload.originCoords ? payload.originCoords[0] : (location.lat || 13.3412);
+      const originLon = payload.originCoords ? payload.originCoords[1] : (location.lon || 74.7478);
+      const destLat = payload.destCoords[0];
+      const destLon = payload.destCoords[1];
 
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/route/evaluate-streamlined`,
@@ -178,8 +182,8 @@ export default function UnStrandedApp() {
             user_id: userId,
             origin_lat: originLat,
             origin_lon: originLon,
-            dest_lat: payload.coords[0],
-            dest_lon: payload.coords[1],
+            dest_lat: destLat,
+            dest_lon: destLon,
             current_soc_percent: payload.startingSoc,
             passengers: payload.passengers,
           }),
@@ -192,14 +196,19 @@ export default function UnStrandedApp() {
       setNearbyChargers(data.planned_stops || []);
       setJourneyRunId((prev) => prev + 1);
     } catch {
+      const originLat = payload.originCoords ? payload.originCoords[0] : (location.lat || 13.3412);
+      const originLon = payload.originCoords ? payload.originCoords[1] : (location.lon || 74.7478);
+      const destLat = payload.destCoords[0];
+      const destLon = payload.destCoords[1];
+
       setRouteResults({
         total_distance_km: 182.4,
         net_energy_kwh: 23.6,
         gross_consumed_kwh: 25.1,
         final_soc_percent: Math.max(12, payload.startingSoc - 46),
         route_geometry: [
-          [location.lat || 13.3412, location.lon || 74.7478],
-          [payload.coords[0], payload.coords[1]],
+          [originLat, originLon],
+          [destLat, destLon],
         ],
       });
       setJourneyRunId((prev) => prev + 1);
@@ -226,6 +235,7 @@ export default function UnStrandedApp() {
         hasActiveRoute={Boolean(routeResults)}
         userProfile={userProfile}
         onOpenGarage={() => setIsGarageOpen(true)}
+        currentLocation={location.lat && location.lon ? [location.lat, location.lon] : [13.3412, 74.7478]}
       />
 
       {/* 2. Open Charge Map Discovery Toast Notification */}
