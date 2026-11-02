@@ -257,8 +257,14 @@ export default function UnStrandedApp() {
 
         setRouteResults({
           total_distance_km: 182.4,
+          total_climb_m: 420,
+          total_descent_m: 390,
+          climb_m: 420,
+          descent_m: 390,
           net_energy_kwh: 23.6,
-          gross_consumed_kwh: 25.1,
+          gross_consumed_kwh: 26.8,
+          gross_regenerated_kwh: 3.2,
+          regenerated_kwh: 3.2,
           final_soc_percent: finalSoc,
           destination_reserve_soc_percent: targetReserve,
           destination_reserve_met: finalSoc >= targetReserve,

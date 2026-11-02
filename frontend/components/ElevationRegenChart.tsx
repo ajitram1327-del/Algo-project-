@@ -27,9 +27,12 @@ interface ElevationRegenChartProps {
   telemetry: TelemetryPoint[];
   summary: {
     total_distance_km?: number;
+    total_climb_m?: number;
+    total_descent_m?: number;
     climb_m?: number;
     descent_m?: number;
     gross_consumed_kwh?: number;
+    gross_regenerated_kwh?: number;
     regenerated_kwh?: number;
     net_energy_kwh?: number;
     final_soc_percent?: number;
@@ -80,10 +83,38 @@ export default function ElevationRegenChart({
     window.open(url, "_blank");
   };
 
-  const climb = summary.climb_m ?? 0;
-  const descent = summary.descent_m ?? 0;
-  const regenKwh = summary.regenerated_kwh ?? Math.max(0, (summary.gross_consumed_kwh || 0) - (summary.net_energy_kwh || 0));
-  const elevationSource = summary.estimated_elevation_source || "Open-Elevation Profile";
+  // Derive climb and descent from summary or directly from sampled telemetry steps
+  let derivedClimb = 0;
+  let derivedDescent = 0;
+  if (telemetry && telemetry.length > 1) {
+    for (let i = 0; i < telemetry.length - 1; i++) {
+      const diff = (telemetry[i + 1].elevation_m || 0) - (telemetry[i].elevation_m || 0);
+      if (diff > 0) derivedClimb += diff;
+      else derivedDescent += Math.abs(diff);
+    }
+  }
+
+  const climb = summary.total_climb_m ?? summary.climb_m ?? Math.round(derivedClimb);
+  const descent = summary.total_descent_m ?? summary.descent_m ?? Math.round(derivedDescent);
+
+  // Compute realistic regenerated energy reclaimed
+  let rawRegen = summary.gross_regenerated_kwh ?? summary.regenerated_kwh;
+  if (rawRegen === undefined || rawRegen === 0) {
+    const diff = (summary.gross_consumed_kwh || 0) - (summary.net_energy_kwh || 0);
+    if (diff > 0.05) {
+      rawRegen = diff;
+    } else if (descent > 25) {
+      // Conservative kinetic regeneration formula: potential energy delta * ~65% roundtrip recovery
+      rawRegen = (descent * 9.80665 * 1600.0 * 0.65) / 3600000.0;
+    } else {
+      rawRegen = 0.0;
+    }
+  }
+  const regenKwh = rawRegen;
+
+  const grossKwh = summary.gross_consumed_kwh || ((summary.net_energy_kwh || 0) + regenKwh);
+  const netKwh = summary.net_energy_kwh || Math.max(0, grossKwh - regenKwh);
+  const elevationSource = summary.estimated_elevation_source || "Open-Meteo / SRTM";
 
   // Min and max elevations for YAxis domain
   const elevations = telemetry.map((t) => t.elevation_m || 0);
@@ -129,7 +160,7 @@ export default function ElevationRegenChart({
           <div className="bg-white p-2.5 rounded-xl border border-slate-200/60 shadow-xs">
             <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Gross / Net Energy</span>
             <div className="font-bold text-slate-800 text-[11px]">
-              {summary.gross_consumed_kwh?.toFixed(1) || 0} / {summary.net_energy_kwh?.toFixed(1) || 0} <span className="font-normal text-slate-400">kWh</span>
+              {grossKwh.toFixed(1)} / {netKwh.toFixed(1)} <span className="font-normal text-slate-400">kWh</span>
             </div>
           </div>
 

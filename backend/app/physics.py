@@ -276,11 +276,14 @@ class RoutePhysicsSummary(BaseModel):
     total_distance_km: float
     total_climb_m: int
     total_descent_m: int
+    climb_m: Optional[int] = None
+    descent_m: Optional[int] = None
     max_uphill_gradient_percent: float
     max_downhill_gradient_percent: float
     max_gradient_percent: float = 0.0
     gross_consumed_kwh: float
     gross_regenerated_kwh: float
+    regenerated_kwh: Optional[float] = None
     net_energy_kwh: float
     final_soc_percent: float
     reserve_breached: bool
@@ -1044,11 +1047,14 @@ class UniversalEVPhysicsEngine:
             total_distance_km=round(total_dist_m / 1000.0, 2),
             total_climb_m=int(round(total_climb_m)),
             total_descent_m=int(round(total_descent_m)),
+            climb_m=int(round(total_climb_m)),
+            descent_m=int(round(total_descent_m)),
             max_uphill_gradient_percent=round(max_uphill_grad, 1),
             max_downhill_gradient_percent=round(max_downhill_grad, 1),
             max_gradient_percent=round(max_grad, 1),
             gross_consumed_kwh=round(gross_consumed + total_aux_consumed, 3),
             gross_regenerated_kwh=round(gross_regen, 3),
+            regenerated_kwh=round(gross_regen, 3),
             net_energy_kwh=round(total_net_kwh, 3),
             final_soc_percent=final_soc,
             reserve_breached=reserve_breached,

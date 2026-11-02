@@ -303,6 +303,14 @@ async def evaluate_streamlined_route(payload: StreamlinedRouteRequest):
     }
 
     res_dict = report.model_dump()
+    res_dict["total_climb_m"] = report.total_climb_m
+    res_dict["total_descent_m"] = report.total_descent_m
+    res_dict["climb_m"] = report.total_climb_m
+    res_dict["descent_m"] = report.total_descent_m
+    res_dict["gross_regenerated_kwh"] = report.gross_regenerated_kwh
+    res_dict["regenerated_kwh"] = report.gross_regenerated_kwh
+    res_dict["gross_consumed_kwh"] = report.gross_consumed_kwh
+    res_dict["net_energy_kwh"] = report.net_energy_kwh
     res_dict["driver_briefing"] = generate_fleet_briefing(briefing_payload)
     res_dict["route_geometry"] = coords_2d
     res_dict["calibration_status"] = calibration.model_dump()
