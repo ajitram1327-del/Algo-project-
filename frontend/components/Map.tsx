@@ -11,7 +11,9 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { LocateFixed, Zap } from "lucide-react";
 import RouteJourneyAnimation from "./RouteJourneyAnimation";
+import ChargerPopupContent from "./ChargerPopupContent";
 
 // 1. Google Maps-style Blue Dot Beacon with Radar Pulsing Ring
 const liveUserBeaconIcon = L.divIcon({
@@ -84,29 +86,46 @@ function MapBoundsSynchronizer({ bounds }: { bounds: L.LatLngBoundsExpression | 
 }
 
 function FloatingRecenterControl({
-  onRecenter,
+  userLocation,
+  onScan,
   isScanning,
 }: {
-  onRecenter: () => void;
+  userLocation: [number, number] | null;
+  onScan: () => void;
   isScanning: boolean;
 }) {
   const map = useMap();
+
+  const handleRecenter = () => {
+    if (userLocation) {
+      map.flyTo(userLocation, Math.max(map.getZoom(), 15), { duration: 0.7 });
+    }
+  };
+
   return (
     <div className="absolute bottom-6 right-4 z-[1000] flex flex-col items-center space-y-2 font-sans pointer-events-auto">
-      {/* Blue Target Button to Scan Open Charge Map */}
+      {/* 1. Recenter Map on GPS Location Button */}
       <button
         type="button"
-        onClick={onRecenter}
+        onClick={handleRecenter}
+        title="Recenter Map to Live Location"
+        className="w-11 h-11 bg-white hover:bg-slate-50 text-slate-700 hover:text-blue-600 rounded-full shadow-[0_3px_10px_rgba(0,0,0,0.2)] flex items-center justify-center transition border border-slate-100 group relative cursor-pointer"
+      >
+        <LocateFixed className="w-5 h-5 transition-transform group-hover:scale-110" />
+      </button>
+
+      {/* 2. Scan Nearby Chargers in Vicinity Button */}
+      <button
+        type="button"
+        onClick={onScan}
         disabled={isScanning}
-        title="Find My Location & Scan Open Charge Map"
-        className="w-11 h-11 bg-white hover:bg-slate-50 text-blue-600 rounded-full shadow-[0_3px_10px_rgba(0,0,0,0.2)] flex items-center justify-center transition border border-slate-100 group relative cursor-pointer"
+        title="Scan Open Charge Map Stations in Vicinity"
+        className="w-11 h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-[0_3px_10px_rgba(26,115,232,0.4)] flex items-center justify-center transition border border-blue-500 group relative cursor-pointer disabled:opacity-50"
       >
         {isScanning ? (
-          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
         ) : (
-          <svg className="w-5 h-5 transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0013 3.06V1h-2v2.06A8.994 8.994 0 003.06 11H1v2h2.06A8.994 8.994 0 0011 20.94V23h2v-2.06A8.994 8.994 0 0020.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z" />
-          </svg>
+          <Zap className="w-5 h-5 fill-white transition-transform group-hover:scale-110" />
         )}
       </button>
 
@@ -191,7 +210,11 @@ export default function Map({
         />
 
         {bounds && <MapBoundsSynchronizer bounds={bounds} />}
-        <FloatingRecenterControl onRecenter={onPingLocation} isScanning={isScanning} />
+        <FloatingRecenterControl
+          userLocation={userLocation}
+          onScan={onPingLocation}
+          isScanning={isScanning}
+        />
 
         {/* Dynamic Route Polyline */}
         {routeGeometry.length > 1 && (
@@ -255,32 +278,7 @@ export default function Map({
             icon={ocmChargerPinIcon(chg.power_kw || 50)}
           >
             <Popup className="telematics-popup">
-              <div className="font-sans text-xs p-1 min-w-[190px]">
-                <div className="flex items-center justify-between gap-1 pb-1 border-b border-slate-100">
-                  <span className="font-bold text-slate-900 truncate">{chg.name}</span>
-                  <span className="px-1.5 py-0.5 bg-sky-50 text-sky-700 font-mono font-bold text-[10px] rounded shrink-0">
-                    {chg.power_kw || 50} kW
-                  </span>
-                </div>
-
-                <div className="mt-1 text-[11px] text-slate-500 space-y-0.5">
-                  {chg.operator && (
-                    <div>
-                      Operator: <span className="text-slate-700 font-medium">{chg.operator}</span>
-                    </div>
-                  )}
-                  {chg.distance_km !== undefined && (
-                    <div className="text-emerald-600 font-medium">
-                      {chg.distance_km} km away
-                    </div>
-                  )}
-                  {chg.connections && chg.connections.length > 0 && (
-                    <div className="text-slate-400 text-[10px]">
-                      Plugs: {chg.connections.join(", ")}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ChargerPopupContent charger={chg} />
             </Popup>
           </Marker>
         ))}

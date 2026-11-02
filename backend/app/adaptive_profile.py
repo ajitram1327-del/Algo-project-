@@ -3,7 +3,7 @@ UnStranded: Grey-Box Adaptive Vehicle Profiles & Telematics Calibration
 Maintains vehicle variant database and driver-specific Exponential Moving Average (EMA) tuning.
 """
 
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from pydantic import BaseModel, Field
 
 
@@ -592,8 +592,12 @@ class StreamlinedRouteRequest(BaseModel):
     origin_lon: float
     dest_lat: float
     dest_lon: float
-    current_soc_percent: float
-    passengers: int = 1
+    current_soc_percent: float = Field(default=70, ge=0, le=100)
+    passengers: int = Field(default=1, ge=1, le=8)
+    destination_reserve_soc_percent: float = Field(default=15.0, ge=5.0, le=50.0)
+    ac_on: bool = True
+    driving_mode: str = Field(default="normal", pattern="^(eco|normal|sport)$")
+    connector_types: List[str] = Field(default_factory=list)
     variant_id: Optional[str] = None
     vehicle_model: Optional[str] = None
     ambient_temp_c: Optional[float] = 32.0

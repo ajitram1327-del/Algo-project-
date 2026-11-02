@@ -5,10 +5,12 @@ Consolidated UnStranded EV Telematics API Server
 import os
 import math
 import asyncio
+import uuid
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Literal
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -83,8 +85,15 @@ class StreamlinedRouteRequest(BaseModel):
     origin_lon: float
     dest_lat: float
     dest_lon: float
-    current_soc_percent: float
-    passengers: int = 1
+    current_soc_percent: float = Field(default=70, ge=0, le=100)
+    passengers: int = Field(default=1, ge=1, le=8)
+    destination_reserve_soc_percent: float = Field(default=15.0, ge=5.0, le=50.0)
+    ac_on: bool = True
+    driving_mode: str = Field(default="normal", pattern="^(eco|normal|sport)$")
+    connector_types: List[str] = Field(default_factory=list)
+    variant_id: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    ambient_temp_c: Optional[float] = 32.0
 
 
 class TripClosureRecord(BaseModel):
@@ -125,6 +134,10 @@ class RouteSimulationRequest(BaseModel):
     coord_order: str = "lat_lon_ele"
     vehicle_age_years: float = 0.0
     odometer_km: Optional[float] = None
+    destination_reserve_soc_percent: float = 15.0
+    ac_on: bool = True
+    driving_mode: str = "normal"
+    connector_types: List[str] = Field(default_factory=list)
 
 
 class BriefingRequest(BaseModel):
@@ -231,7 +244,9 @@ async def get_profile(user_id: str):
 @app.post("/api/route/evaluate-streamlined")
 async def evaluate_streamlined_route(payload: StreamlinedRouteRequest):
     profile = await get_profile(payload.user_id)
-    variant = VEHICLE_VARIANTS_DB.get(profile["variant_id"], VEHICLE_VARIANTS_DB.get("nexon_ev_lr"))
+    # Handle optional vehicle_model override if user picked a different variant
+    target_variant_id = payload.variant_id or payload.vehicle_model or profile.get("variant_id")
+    variant = VEHICLE_VARIANTS_DB.get(target_variant_id, VEHICLE_VARIANTS_DB.get(profile["variant_id"], VEHICLE_VARIANTS_DB["nexon_ev_lr"]))
 
     calibration = CalibrationFactors(
         driver_aggression_factor=profile["driver_aggression_factor"],
@@ -249,7 +264,7 @@ async def evaluate_streamlined_route(payload: StreamlinedRouteRequest):
 
     elevations, candidate_chargers, weather_profile = await asyncio.gather(
         geo_service.fetch_elevation_profile(coords_2d),
-        geo_service.fetch_chargers_along_corridor(mid_lat, mid_lon),
+        geo_service.fetch_chargers_along_corridor(mid_lat, mid_lon, connector_types=payload.connector_types),
         weather_service.fetch_corridor_weather(coords_2d),
     )
 
@@ -260,13 +275,16 @@ async def evaluate_streamlined_route(payload: StreamlinedRouteRequest):
         variant_specs=variant,
         calibration=calibration,
         passengers=payload.passengers,
-        ambient_temp_c=avg_temp,
+        ambient_temp_c=payload.ambient_temp_c or avg_temp,
+        ac_on=payload.ac_on,
+        driving_mode=payload.driving_mode,
     )
 
     report = engine.evaluate_route(
         coordinates_3d=coords_3d,
         weather_profile=weather_profile,
         initial_soc_percent=payload.current_soc_percent,
+        destination_reserve_soc_percent=payload.destination_reserve_soc_percent,
         candidate_chargers=candidate_chargers,
     )
 
@@ -344,6 +362,8 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
             ambient_temp_c=payload.ambient_temp_c,
             vehicle_age_years=payload.vehicle_age_years,
             odometer_km=payload.odometer_km,
+            ac_on=payload.ac_on,
+            driving_mode=payload.driving_mode,
         )
 
         physics_report = engine.evaluate_route(
@@ -351,6 +371,7 @@ async def evaluate_route_endpoint(payload: RouteSimulationRequest):
             weather_profile=weather_profile,
             coord_order=payload.coord_order,
             initial_soc_percent=soc_start,
+            destination_reserve_soc_percent=payload.destination_reserve_soc_percent,
             candidate_chargers=candidate_chargers,
         )
 
@@ -510,12 +531,14 @@ async def get_nearby_chargers(
     lat: float,
     lon: float,
     radius_km: float = 25.0,
+    connector_types: Optional[str] = None,
 ):
     """
     Pings Open Charge Map API around the user's live coordinates
-    and returns all stations within the radius.
+    and returns all stations within the radius, filtered by connector types if requested.
     """
-    chargers = await fetch_nearby_opencharge_stations(lat=lat, lon=lon, radius_km=radius_km)
+    conn_list = [c.strip().upper() for c in connector_types.split(",")] if connector_types else None
+    chargers = await fetch_nearby_opencharge_stations(lat=lat, lon=lon, radius_km=radius_km, connector_types=conn_list)
     return {
         "status": "success",
         "count": len(chargers),
@@ -525,5 +548,128 @@ async def get_nearby_chargers(
 
 
 @app.get("/api/chargers")
-async def get_chargers(lat: float = 13.3409, lon: float = 74.7858, distance_km: float = 25.0):
-    return await geo_service.fetch_chargers_along_corridor(lat, lon, radius_m=int(distance_km * 1000))
+async def get_chargers(
+    lat: float = 13.3409,
+    lon: float = 74.7858,
+    distance_km: float = 25.0,
+    connector_types: Optional[str] = None,
+):
+    conn_list = [c.strip().upper() for c in connector_types.split(",")] if connector_types else None
+    return await geo_service.fetch_chargers_along_corridor(
+        lat, lon, radius_m=int(distance_km * 1000), connector_types=conn_list
+    )
+
+
+# =====================================================================
+# Community Charger Reliability Reporting Endpoints
+# =====================================================================
+
+class ChargerStatusReportRequest(BaseModel):
+    station_id: str
+    status: Literal["operational", "broken", "slow", "other"]
+    connector_type: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+    user_id: Optional[str] = "anonymous"
+
+
+COMMUNITY_CHARGER_REPORTS: List[Dict[str, Any]] = [
+    {
+        "id": "rep_seed_1",
+        "station_id": "chg_udupi",
+        "status": "operational",
+        "connector_type": "CCS2",
+        "note": "Working at full 60kW, plug released smoothly.",
+        "user_id": "user_ajit_1327",
+        "created_at": (datetime.utcnow() - timedelta(minutes=24)).isoformat(),
+        "expires_at": (datetime.utcnow() + timedelta(hours=23, minutes=36)).isoformat(),
+    },
+    {
+        "id": "rep_seed_2",
+        "station_id": "ocm_local_1",
+        "status": "operational",
+        "connector_type": "CCS2",
+        "note": "Quick 15 min top up, RFID card authenticated instantly.",
+        "user_id": "driver_karan_99",
+        "created_at": (datetime.utcnow() - timedelta(minutes=50)).isoformat(),
+        "expires_at": (datetime.utcnow() + timedelta(hours=23, minutes=10)).isoformat(),
+    },
+]
+
+
+@app.post("/api/chargers/report")
+async def submit_charger_status_report(payload: ChargerStatusReportRequest):
+    now = datetime.utcnow()
+    report = {
+        "id": f"rep_{uuid.uuid4().hex[:8]}",
+        "station_id": payload.station_id,
+        "status": payload.status,
+        "connector_type": payload.connector_type or "CCS2",
+        "note": payload.note,
+        "user_id": payload.user_id or "anonymous",
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(hours=24)).isoformat(),
+    }
+    COMMUNITY_CHARGER_REPORTS.insert(0, report)
+    if supabase is not None:
+        try:
+            supabase.table("charger_status_reports").insert(report).execute()
+        except Exception:
+            pass
+    return {"status": "success", "report": report}
+
+
+@app.get("/api/chargers/{station_id}/reports")
+async def get_charger_status_reports(station_id: str):
+    now_iso = datetime.utcnow().isoformat()
+    valid_reports = [
+        r for r in COMMUNITY_CHARGER_REPORTS
+        if r["station_id"] == station_id and r.get("expires_at", "") > now_iso
+    ]
+
+    if not valid_reports:
+        return {
+            "station_id": station_id,
+            "has_reports": False,
+            "status_label": "No recent community reports",
+            "reliability_score": None,
+            "reports": [],
+        }
+
+    valid_reports.sort(key=lambda r: r["created_at"], reverse=True)
+    latest = valid_reports[0]
+    try:
+        rep_time = datetime.fromisoformat(latest["created_at"])
+        mins_ago = max(1, int((datetime.utcnow() - rep_time).total_seconds() / 60))
+        time_str = f"{mins_ago}m ago" if mins_ago < 60 else f"{mins_ago // 60}h ago"
+    except Exception:
+        time_str = "recently"
+
+    operational_count = sum(1 for r in valid_reports if r["status"] == "operational")
+    broken_count = sum(1 for r in valid_reports if r["status"] == "broken")
+    slow_count = sum(1 for r in valid_reports if r["status"] == "slow")
+    total = len(valid_reports)
+
+    if latest["status"] == "broken":
+        status_label = f"Broken plug reported ({time_str})"
+    elif latest["status"] == "slow":
+        status_label = f"Slow charging reported ({time_str})"
+    elif latest["status"] == "operational":
+        status_label = f"Operational ({operational_count} verified, latest {time_str})"
+    else:
+        status_label = f"Reported {latest['status']} ({time_str})"
+
+    reliability_score = round((operational_count / max(1, total)) * 100, 0)
+
+    return {
+        "station_id": station_id,
+        "has_reports": True,
+        "status_label": status_label,
+        "latest_status": latest["status"],
+        "latest_time_str": time_str,
+        "reliability_score": reliability_score,
+        "operational_count": operational_count,
+        "broken_count": broken_count,
+        "slow_count": slow_count,
+        "total_reports": total,
+        "reports": valid_reports[:10],
+    }

@@ -2,13 +2,15 @@
 
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import FloatingSearchCapsule from "../components/FloatingSearchCapsule";
+import FloatingSearchCapsule, { DestinationPayload } from "../components/FloatingSearchCapsule";
 import GarageModal from "../components/GarageModal";
 import ArrivalFeedbackModal from "../components/ArrivalFeedbackModal";
 import AuthModal from "../components/AuthModal";
+import ElevationRegenChart from "../components/ElevationRegenChart";
 import { useUserLocation } from "../hooks/useUserLocation";
 import { supabase } from "../lib/supabaseClient";
-import { User, LogOut } from "lucide-react";
+import { saveRouteSnapshot, getLatestRouteSnapshot } from "../lib/offlineRouteStore";
+import { User, LogOut, Mountain } from "lucide-react";
 
 const Map = dynamic(() => import("../components/Map"), {
   ssr: false,
@@ -35,12 +37,25 @@ export default function UnStrandedApp() {
   const [isGarageOpen, setIsGarageOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isChartOpen, setIsChartOpen] = useState(false);
   const [lastStartingSoc, setLastStartingSoc] = useState(70);
+
+  // Core Trip Parameters
+  const [startingSoc, setStartingSoc] = useState(85);
+  const [arrivalReserveSoc, setArrivalReserveSoc] = useState(15);
+  const [acOn, setAcOn] = useState(true);
+  const [drivingMode, setDrivingMode] = useState<"eco" | "normal" | "sport">("normal");
+  const [connectorTypes, setConnectorTypes] = useState<string[]>(["CCS2", "TYPE2"]);
+  const [activeOriginCoords, setActiveOriginCoords] = useState<[number, number] | null>(null);
+  const [activeDestCoords, setActiveDestCoords] = useState<[number, number] | null>(null);
 
   const { location, getLivePosition } = useUserLocation();
 
   useEffect(() => {
     getLivePosition().catch(() => {});
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
   }, [getLivePosition]);
 
   // Listen to live Supabase Auth
@@ -157,14 +172,7 @@ export default function UnStrandedApp() {
     }
   };
 
-  const handleRouteSubmit = async (payload: {
-    originName: string;
-    originCoords: [number, number];
-    destName: string;
-    destCoords: [number, number];
-    startingSoc: number;
-    passengers: number;
-  }) => {
+  const handleRouteSubmit = async (payload: DestinationPayload) => {
     setIsLoading(true);
     setLastStartingSoc(payload.startingSoc);
     try {
@@ -172,6 +180,9 @@ export default function UnStrandedApp() {
       const originLon = payload.originCoords ? payload.originCoords[1] : (location.lon || 74.7478);
       const destLat = payload.destCoords[0];
       const destLon = payload.destCoords[1];
+
+      setActiveOriginCoords([originLat, originLon]);
+      setActiveDestCoords([destLat, destLon]);
 
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/route/evaluate-streamlined`,
@@ -186,6 +197,10 @@ export default function UnStrandedApp() {
             dest_lon: destLon,
             current_soc_percent: payload.startingSoc,
             passengers: payload.passengers,
+            destination_reserve_soc_percent: payload.arrivalReserveSoc ?? arrivalReserveSoc,
+            ac_on: payload.acOn ?? acOn,
+            driving_mode: payload.drivingMode ?? drivingMode,
+            connector_types: payload.connectorTypes ?? connectorTypes,
           }),
         }
       );
@@ -195,22 +210,66 @@ export default function UnStrandedApp() {
       setRouteResults(data);
       setNearbyChargers(data.planned_stops || []);
       setJourneyRunId((prev) => prev + 1);
+
+      // Persist snapshot to IndexedDB offline store
+      const snapshotKey = `${originLat.toFixed(3)}_${originLon.toFixed(3)}_${destLat.toFixed(3)}_${destLon.toFixed(3)}`;
+      saveRouteSnapshot({
+        id: snapshotKey,
+        saved_at: new Date().toISOString(),
+        origin_name: payload.originName,
+        dest_name: payload.destName,
+        origin_coords: [originLat, originLon],
+        dest_coords: [destLat, destLon],
+        route_geometry: data.route_geometry || [],
+        telemetry_profile: data.telemetry_profile || [],
+        summary: data,
+        planned_stops: data.planned_stops || [],
+        is_cached_snapshot: false,
+      }).catch(() => {});
     } catch {
       const originLat = payload.originCoords ? payload.originCoords[0] : (location.lat || 13.3412);
       const originLon = payload.originCoords ? payload.originCoords[1] : (location.lon || 74.7478);
       const destLat = payload.destCoords[0];
       const destLon = payload.destCoords[1];
 
-      setRouteResults({
-        total_distance_km: 182.4,
-        net_energy_kwh: 23.6,
-        gross_consumed_kwh: 25.1,
-        final_soc_percent: Math.max(12, payload.startingSoc - 46),
-        route_geometry: [
-          [originLat, originLon],
-          [destLat, destLon],
-        ],
-      });
+      setActiveOriginCoords([originLat, originLon]);
+      setActiveDestCoords([destLat, destLon]);
+
+      // Check IndexedDB for existing route snapshot
+      const cached = await getLatestRouteSnapshot();
+      if (cached && cached.summary) {
+        setRouteResults({
+          ...cached.summary,
+          is_cached_snapshot: true,
+          saved_at: cached.saved_at,
+          route_geometry: cached.route_geometry || [
+            [originLat, originLon],
+            [destLat, destLon],
+          ],
+        });
+        setNearbyChargers(cached.planned_stops || []);
+        setScanMessage(
+          `Loaded cached route · saved ${new Date(cached.saved_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · Status may be stale`
+        );
+      } else {
+        const finalSoc = Math.max(12, payload.startingSoc - 46);
+        const targetReserve = payload.arrivalReserveSoc ?? arrivalReserveSoc;
+
+        setRouteResults({
+          total_distance_km: 182.4,
+          net_energy_kwh: 23.6,
+          gross_consumed_kwh: 25.1,
+          final_soc_percent: finalSoc,
+          destination_reserve_soc_percent: targetReserve,
+          destination_reserve_met: finalSoc >= targetReserve,
+          estimated_elevation_source: "Offline / Fallback Model",
+          is_cached_snapshot: true,
+          route_geometry: [
+            [originLat, originLon],
+            [destLat, destLon],
+          ],
+        });
+      }
       setJourneyRunId((prev) => prev + 1);
     } finally {
       setIsLoading(false);
@@ -236,6 +295,16 @@ export default function UnStrandedApp() {
         userProfile={userProfile}
         onOpenGarage={() => setIsGarageOpen(true)}
         currentLocation={location.lat && location.lon ? [location.lat, location.lon] : [13.3412, 74.7478]}
+        startingSoc={startingSoc}
+        setStartingSoc={setStartingSoc}
+        arrivalReserveSoc={arrivalReserveSoc}
+        setArrivalReserveSoc={setArrivalReserveSoc}
+        acOn={acOn}
+        setAcOn={setAcOn}
+        drivingMode={drivingMode}
+        setDrivingMode={setDrivingMode}
+        connectorTypes={connectorTypes}
+        setConnectorTypes={setConnectorTypes}
       />
 
       {/* 2. Open Charge Map Discovery Toast Notification */}
@@ -248,7 +317,7 @@ export default function UnStrandedApp() {
 
       {/* 3. Compact Route Telematics Bar (Only when route is active) */}
       {routeResults && (
-        <div className="absolute top-4 left-[415px] z-[1000] bg-white rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.14)] p-3 border border-slate-100 text-xs font-sans flex items-center space-x-4">
+        <div className="absolute top-4 left-[415px] z-[1000] bg-white rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.14)] p-3 border border-slate-100 text-xs font-sans flex items-center space-x-3.5">
           <div>
             <span className="text-[10px] uppercase font-bold text-slate-400 block">Distance</span>
             <span className="font-bold text-slate-900">{routeResults.total_distance_km} km</span>
@@ -261,13 +330,54 @@ export default function UnStrandedApp() {
           <div className="w-[1px] h-6 bg-slate-200" />
           <div>
             <span className="text-[10px] uppercase font-bold text-emerald-600 block">Arrival SoC</span>
-            <span className="font-mono font-bold text-emerald-700 text-sm">
-              {routeResults.final_soc_percent}%
-            </span>
+            <div className="flex items-center space-x-1.5">
+              <span className="font-mono font-bold text-emerald-700 text-sm">
+                {routeResults.final_soc_percent}%
+              </span>
+              {routeResults.destination_reserve_met !== undefined && (
+                <span
+                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                    routeResults.destination_reserve_met
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-amber-100 text-amber-800"
+                  }`}
+                  title={
+                    routeResults.destination_reserve_met
+                      ? `Desired ${routeResults.destination_reserve_soc_percent || arrivalReserveSoc}% reserve satisfied`
+                      : `Buffer breached (target: ${routeResults.destination_reserve_soc_percent || arrivalReserveSoc}%)`
+                  }
+                >
+                  {routeResults.destination_reserve_met ? "Reserve Met" : "Buffer Breached"}
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* Elevation Profile Chart Trigger */}
+          <button
+            onClick={() => setIsChartOpen(true)}
+            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-[11px] rounded-xl border border-emerald-200 transition cursor-pointer flex items-center space-x-1"
+            title="View Elevation & Kinetic Dynamics Profile"
+          >
+            <Mountain className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Profile</span>
+          </button>
+
+          {/* Offline / Cached Snapshot Warning Badge */}
+          {routeResults.is_cached_snapshot && (
+            <div
+              className="px-2 py-1 bg-amber-50 text-amber-800 border border-amber-200/80 rounded-xl text-[10px] font-bold flex items-center space-x-1 shrink-0"
+              title="Viewing offline cached route snapshot; charger availability and status may be stale."
+            >
+              <span>⚡ Cached</span>
+              <span className="text-amber-400">&bull;</span>
+              <span className="font-medium text-amber-700">Offline</span>
+            </div>
+          )}
+
           <button
             onClick={() => setIsFeedbackOpen(true)}
-            className="ml-2 px-3 py-1.5 bg-slate-900 hover:bg-black text-white font-semibold text-[11px] rounded-xl transition cursor-pointer"
+            className="px-3 py-1.5 bg-slate-900 hover:bg-black text-white font-semibold text-[11px] rounded-xl transition cursor-pointer"
           >
             End &amp; Calibrate
           </button>
@@ -345,7 +455,18 @@ export default function UnStrandedApp() {
         }}
       />
 
-      {/* 8. Leaflet Map Canvas */}
+      {/* 8. Elevation & Dynamic Energy Chart Modal */}
+      <ElevationRegenChart
+        isOpen={isChartOpen}
+        onClose={() => setIsChartOpen(false)}
+        telemetry={routeResults?.telemetry_profile || []}
+        summary={routeResults || {}}
+        originCoords={activeOriginCoords || (location.lat && location.lon ? [location.lat, location.lon] : [13.3412, 74.7478])}
+        destCoords={activeDestCoords || undefined}
+        stops={nearbyChargers}
+      />
+
+      {/* 9. Leaflet Map Canvas */}
       <Map
         userLocation={
           location.lat && location.lon ? [location.lat, location.lon] : [13.3412, 74.7478]

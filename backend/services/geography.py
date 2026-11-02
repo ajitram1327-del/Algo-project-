@@ -4,7 +4,24 @@ Unified Geospatial Gateway: OSRM Routing, DEM Elevation, and OSM Charging Infras
 
 import math
 import httpx
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
+
+
+def extract_osm_connectors(tags: Dict[str, Any]) -> List[str]:
+    conns = set()
+    for k in tags.keys():
+        k_lower = k.lower()
+        if "type2_combo" in k_lower or "ccs" in k_lower:
+            conns.add("CCS2")
+        elif "type2" in k_lower:
+            conns.add("TYPE2")
+        elif "gbt" in k_lower or "gb_t" in k_lower:
+            conns.add("GBT")
+        elif "schuko" in k_lower or "bs546" in k_lower or "15a" in k_lower or "domestic" in k_lower:
+            conns.add("15A")
+    if not conns:
+        conns.add("CCS2")
+    return list(conns)
 
 
 class GeographyService:
@@ -108,7 +125,12 @@ class GeographyService:
         return [round(max(2.0, 15.0 + 55.0 * math.sin((i / max(1, n - 1)) * math.pi)), 1) for i in range(n)]
 
     async def fetch_chargers_along_corridor(
-        self, center_lat: float, center_lon: float, radius_m: int = 40000, route_coords: Any = None
+        self,
+        center_lat: float,
+        center_lon: float,
+        radius_m: int = 40000,
+        route_coords: Any = None,
+        connector_types: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         query = f"""
         [out:json][timeout:12];
@@ -129,22 +151,35 @@ class GeographyService:
                         lon = el.get("lon") or el.get("center", {}).get("lon")
                         tags = el.get("tags", {})
                         if lat and lon:
+                            norm_conns = extract_osm_connectors(tags)
                             stations.append({
                                 "id": f"osm_{el['id']}",
                                 "name": tags.get("name", tags.get("operator", "DC Fast Charger")),
                                 "lat": lat,
                                 "lon": lon,
                                 "power_kw": float(tags.get("capacity:kw", 50.0)),
+                                "normalized_connectors": norm_conns,
                             })
+                    if connector_types:
+                        wanted = set(c.upper() for c in connector_types)
+                        filtered = [s for s in stations if any(nc in wanted for nc in s["normalized_connectors"])]
+                        if filtered:
+                            stations = filtered
                     if stations:
                         return stations
         except Exception:
             pass
 
         # Verified fallback infrastructure for coastal Karnataka highway corridor
-        return [
-            {"id": "chg_udupi", "name": "Tata Power EZ Charge - Udupi", "lat": 13.3412, "lon": 74.7478, "power_kw": 60.0},
-            {"id": "chg_surathkal", "name": "Zeon Charging Hub - Surathkal", "lat": 13.0112, "lon": 74.7932, "power_kw": 50.0},
-            {"id": "chg_padubidri", "name": "Jio-bp Pulse - Padubidri NH66", "lat": 13.1345, "lon": 74.7712, "power_kw": 60.0},
-            {"id": "chg_manipal", "name": "KSEB / BESCOM Fast Station - Manipal", "lat": 13.3540, "lon": 74.7890, "power_kw": 50.0},
+        fallback = [
+            {"id": "chg_udupi", "name": "Tata Power EZ Charge - Udupi", "lat": 13.3412, "lon": 74.7478, "power_kw": 60.0, "normalized_connectors": ["CCS2", "TYPE2"]},
+            {"id": "chg_surathkal", "name": "Zeon Charging Hub - Surathkal", "lat": 13.0112, "lon": 74.7932, "power_kw": 50.0, "normalized_connectors": ["CCS2"]},
+            {"id": "chg_padubidri", "name": "Jio-bp Pulse - Padubidri NH66", "lat": 13.1345, "lon": 74.7712, "power_kw": 60.0, "normalized_connectors": ["CCS2"]},
+            {"id": "chg_manipal", "name": "KSEB / BESCOM Fast Station - Manipal", "lat": 13.3540, "lon": 74.7890, "power_kw": 50.0, "normalized_connectors": ["CCS2", "TYPE2"]},
         ]
+        if connector_types:
+            wanted = set(c.upper() for c in connector_types)
+            filtered_fb = [s for s in fallback if any(nc in wanted for nc in s["normalized_connectors"])]
+            if filtered_fb:
+                return filtered_fb
+        return fallback

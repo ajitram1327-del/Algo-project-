@@ -313,6 +313,47 @@ def test_nearby_chargers_endpoint():
     assert "power_kw" in first
 
 
+def test_charger_status_reports_flow():
+    # 1. Check station with no reports
+    res_empty = client.get("/api/chargers/station_xyz_unreported/reports")
+    assert res_empty.status_code == 200
+    empty_data = res_empty.json()
+    assert empty_data["has_reports"] is False
+    assert "No recent community reports" in empty_data["status_label"]
+
+    # 2. Submit an operational report
+    report_payload = {
+        "station_id": "station_xyz_unreported",
+        "status": "operational",
+        "connector_type": "CCS2",
+        "note": "Charging at steady 55kW rate",
+        "user_id": "test_driver_42",
+    }
+    res_post = client.post("/api/chargers/report", json=report_payload)
+    assert res_post.status_code == 200
+    assert res_post.json()["status"] == "success"
+
+    # 3. Retrieve reports now
+    res_updated = client.get("/api/chargers/station_xyz_unreported/reports")
+    assert res_updated.status_code == 200
+    updated_data = res_updated.json()
+    assert updated_data["has_reports"] is True
+    assert updated_data["operational_count"] == 1
+    assert "Operational" in updated_data["status_label"]
+    assert updated_data["reliability_score"] == 100.0
+
+
+def test_nearby_chargers_with_connector_filter():
+    res = client.get("/api/chargers/nearby?lat=13.3412&lon=74.7478&radius_km=25&connector_types=CCS2")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["chargers"]) > 0
+    for chg in data["chargers"]:
+        assert "normalized_connectors" in chg
+        assert "CCS2" in chg["normalized_connectors"]
+
+
+
 
 
 

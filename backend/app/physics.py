@@ -293,6 +293,9 @@ class RoutePhysicsSummary(BaseModel):
     route_coordinates: Optional[List[List[float]]] = None
     battery_health: Optional[BatteryHealthAudit] = None
     weather_impact: Optional[WeatherImpactSummary] = None
+    destination_reserve_soc_percent: Optional[float] = 10.0
+    destination_reserve_met: Optional[bool] = True
+    estimated_elevation_source: Optional[str] = "Open-Elevation / OSRM"
 
 
 def estimate_battery_soh(
@@ -343,6 +346,8 @@ class UniversalEVPhysicsEngine:
         odometer_km: Optional[float] = None,
         variant_specs: Optional[Any] = None,
         calibration: Optional[Any] = None,
+        ac_on: bool = True,
+        driving_mode: str = "normal",
     ):
         if variant_specs is not None:
             self.specs = variant_specs
@@ -355,6 +360,9 @@ class UniversalEVPhysicsEngine:
         self.passengers = max(1, passengers)
         self.ambient_temp_c = ambient_temp_c
         self.cabin_temp_c = cabin_temp_c
+        self.ac_on = bool(ac_on)
+        self.driving_mode = driving_mode.lower() if driving_mode else "normal"
+        self.mode_speed_factor = {"eco": 0.90, "normal": 1.00, "sport": 1.10}.get(self.driving_mode, 1.00)
         self.vehicle_age_years = max(0.0, float(vehicle_age_years))
         self.odometer_km = (
             self.vehicle_age_years * 12000.0
@@ -401,7 +409,7 @@ class UniversalEVPhysicsEngine:
         )
 
         # Continuous Auxiliary and HVAC thermal load
-        temp_delta = abs(self.ambient_temp_c - self.cabin_temp_c)
+        temp_delta = abs(self.ambient_temp_c - self.cabin_temp_c) if self.ac_on else 0.0
         base_aux = getattr(self.specs, "base_auxiliary_power_w", 650.0)
         self.aux_power_w = (
             base_aux
@@ -560,11 +568,15 @@ class UniversalEVPhysicsEngine:
         cruising_speed_kmh: float = 65.0,
         initial_soc_percent: float = 50.0,
         reserve_threshold_percent: float = 10.0,
+        destination_reserve_soc_percent: float = 10.0,
         candidate_chargers: Optional[List[Dict[str, Any]]] = None,
         available_chargers: Optional[List[Dict[str, Any]]] = None,
     ) -> RoutePhysicsSummary:
         if len(coordinates_3d) < 2:
             raise ValueError("Route must contain at least 2 coordinate points.")
+
+        # Apply driving mode speed scaling to base cruising speed
+        cruising_speed_kmh = cruising_speed_kmh * getattr(self, "mode_speed_factor", 1.0)
 
         chargers = candidate_chargers or available_chargers or []
 
@@ -803,7 +815,7 @@ class UniversalEVPhysicsEngine:
                 is_regen = True
 
             # 9. Cabin auxiliary HVAC load with localized ambient temperature
-            local_temp_delta = abs(seg_temp - self.cabin_temp_c)
+            local_temp_delta = abs(seg_temp - self.cabin_temp_c) if self.ac_on else 0.0
             seg_aux_w = (
                 base_aux_w
                 + (local_temp_delta * 85.0)
@@ -843,19 +855,30 @@ class UniversalEVPhysicsEngine:
             if station_ptr < num_stations and augmented_stations[station_ptr]["route_idx"] == i and can_charge:
                 curr_cand = augmented_stations[station_ptr]
                 # Look ahead to the NEXT station or destination
+                total_route_km = pt_dists_m[-1] / 1000.0
+                remaining_dist_to_dest_km = max(0.0, total_route_km - curr_cand["dist_km"])
+
                 if station_ptr + 1 < num_stations:
                     next_cand = augmented_stations[station_ptr + 1]
                     dist_to_next_km = next_cand["dist_km"] - curr_cand["dist_km"]
                 else:
-                    dist_to_next_km = (pt_dists_m[-1] / 1000.0) - curr_cand["dist_km"]
+                    dist_to_next_km = remaining_dist_to_dest_km
 
                 # Estimate energy needed to reach next milestone (~0.135 kWh/km baseline adjusted for mass)
                 est_rate_kwh_km = (self.total_mass_kg / 1500.0) * 0.135
                 est_energy_to_next = dist_to_next_km * est_rate_kwh_km
+                est_energy_to_dest = remaining_dist_to_dest_km * est_rate_kwh_km
 
-                # Stop if car cannot safely reach next station without breaching reserve, OR if SoC is <= 18%
+                # Destination arrival reserve buffer in kWh
+                dest_reserve_kwh = (destination_reserve_soc_percent / 100.0) * self.effective_battery_capacity_kwh
+
+                # Stop if car cannot safely reach next station without breaching reserve,
+                # OR if cannot reach destination with desired destination reserve,
+                # OR if SoC is <= 18%
                 will_breach_next = (current_soc_kwh - est_energy_to_next) < reserve_kwh
-                if will_breach_next or current_soc_pct <= 18.0:
+                will_breach_destination_target = (current_soc_kwh - est_energy_to_dest) < dest_reserve_kwh
+
+                if will_breach_next or will_breach_destination_target or current_soc_pct <= 18.0:
                     should_stop_here = True
                     matched_station = curr_cand["station"]
 
@@ -879,8 +902,20 @@ class UniversalEVPhysicsEngine:
                 power_kw = float(matched_station.get("power_kw", 60.0))
 
                 eff_kw = min(power_kw, getattr(self.specs, "max_charge_power_kw", 50.0))
-                # Recharges up to 80% of effective aged capacity
-                target_kwh = 0.80 * self.effective_battery_capacity_kwh
+                # Dynamic target: Ensure we leave with at least 80% or whatever is required to hit destination reserve
+                total_route_km = pt_dists_m[-1] / 1000.0
+                remaining_km = max(0.0, total_route_km - current_dist_km)
+                est_kwh_km = (self.total_mass_kg / 1500.0) * 0.135
+                energy_to_dest = remaining_km * est_kwh_km
+                dest_reserve_kwh = (destination_reserve_soc_percent / 100.0) * self.effective_battery_capacity_kwh
+                needed_kwh_at_departure = energy_to_dest + dest_reserve_kwh
+
+                target_kwh = min(
+                    self.effective_battery_capacity_kwh,
+                    max(0.80 * self.effective_battery_capacity_kwh, needed_kwh_at_departure),
+                )
+                target_soc_pct = round((target_kwh / self.effective_battery_capacity_kwh) * 100.0, 1)
+
                 added_kwh = max(0.0, target_kwh - current_soc_kwh)
                 dwell_mins = (added_kwh / max(10.0, eff_kw)) * 60.0 / 0.90
 
@@ -892,12 +927,12 @@ class UniversalEVPhysicsEngine:
                         lon=station_lon,
                         distance_along_route_km=current_dist_km,
                         arrival_soc_percent=round(current_soc_pct, 1),
-                        departure_soc_percent=80.0,
+                        departure_soc_percent=target_soc_pct,
                         energy_added_kwh=round(added_kwh, 2),
                         charge_duration_mins=round(dwell_mins, 1),
                         power_kw=eff_kw,
                         arrival_distance_km=current_dist_km,
-                        target_soc_percent=80.0,
+                        target_soc_percent=target_soc_pct,
                         charging_time_minutes=round(dwell_mins, 1),
                     )
                 )
@@ -923,16 +958,16 @@ class UniversalEVPhysicsEngine:
                     )
                 )
 
-                # Point B: Immediate 80% SoC departure step
+                # Point B: Immediate target SoC departure step
                 current_soc_kwh = target_kwh
-                current_soc_pct = 80.0
+                current_soc_pct = target_soc_pct
                 telemetry.append(
                     SegmentTelemetry(
                         segment_idx=len(telemetry),
                         distance_km=current_dist_km,
                         elevation_m=round(ele2, 1),
                         gradient_percent=round(gradient_percent, 1),
-                        soc_percent=80.0,
+                        soc_percent=target_soc_pct,
                         is_regenerating=False,
                         is_charging_step=True,
                         is_charging_stop=True,
@@ -1002,6 +1037,9 @@ class UniversalEVPhysicsEngine:
             extra_weather_energy_kwh=round(weather_penalized_energy, 3),
         )
 
+        final_soc = round(telemetry[-1].soc_percent, 1)
+        dest_reserve_met = (final_soc >= destination_reserve_soc_percent) or (len(planned_stops) > 0 and final_soc >= (destination_reserve_soc_percent - 2.0))
+
         return RoutePhysicsSummary(
             total_distance_km=round(total_dist_m / 1000.0, 2),
             total_climb_m=int(round(total_climb_m)),
@@ -1012,7 +1050,7 @@ class UniversalEVPhysicsEngine:
             gross_consumed_kwh=round(gross_consumed + total_aux_consumed, 3),
             gross_regenerated_kwh=round(gross_regen, 3),
             net_energy_kwh=round(total_net_kwh, 3),
-            final_soc_percent=round(telemetry[-1].soc_percent, 1),
+            final_soc_percent=final_soc,
             reserve_breached=reserve_breached,
             is_unreachable=False,
             total_charging_time_minutes=round(total_charge_time, 1),
@@ -1023,6 +1061,9 @@ class UniversalEVPhysicsEngine:
             route_coordinates=[[p["lon"], p["lat"]] for p in raw_points],
             battery_health=battery_audit,
             weather_impact=weather_summary,
+            destination_reserve_soc_percent=destination_reserve_soc_percent,
+            destination_reserve_met=dest_reserve_met,
+            estimated_elevation_source="Open-Elevation / OSRM",
         )
 
 

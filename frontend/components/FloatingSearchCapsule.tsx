@@ -12,6 +12,10 @@ import {
   Check,
   ChevronRight,
   SlidersHorizontal,
+  Zap,
+  Wind,
+  Gauge,
+  Battery,
 } from "lucide-react";
 
 export interface NominatimResult {
@@ -29,6 +33,10 @@ export interface DestinationPayload {
   destCoords: [number, number];
   startingSoc: number;
   passengers: number;
+  arrivalReserveSoc?: number;
+  acOn?: boolean;
+  drivingMode?: "eco" | "normal" | "sport";
+  connectorTypes?: string[];
 }
 
 interface FloatingSearchProps {
@@ -39,6 +47,16 @@ interface FloatingSearchProps {
   userProfile: any;
   onOpenGarage: () => void;
   currentLocation?: [number, number] | null;
+  startingSoc: number;
+  setStartingSoc: (soc: number) => void;
+  arrivalReserveSoc: number;
+  setArrivalReserveSoc: (soc: number) => void;
+  acOn: boolean;
+  setAcOn: (ac: boolean) => void;
+  drivingMode: "eco" | "normal" | "sport";
+  setDrivingMode: (mode: "eco" | "normal" | "sport") => void;
+  connectorTypes: string[];
+  setConnectorTypes: (types: string[]) => void;
 }
 
 export default function FloatingSearchCapsule({
@@ -49,6 +67,16 @@ export default function FloatingSearchCapsule({
   userProfile,
   onOpenGarage,
   currentLocation,
+  startingSoc,
+  setStartingSoc,
+  arrivalReserveSoc,
+  setArrivalReserveSoc,
+  acOn,
+  setAcOn,
+  drivingMode,
+  setDrivingMode,
+  connectorTypes,
+  setConnectorTypes,
 }: FloatingSearchProps) {
   // Mode: expanded (A to B planner open) or collapsed
   const [isExpanded, setIsExpanded] = useState(false);
@@ -68,8 +96,7 @@ export default function FloatingSearchCapsule({
   const [isSearching, setIsSearching] = useState(false);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Trip Specs
-  const [startingSoc, setStartingSoc] = useState(70);
+  // Passengers
   const [passengers, setPassengers] = useState(1);
 
   // Initialize live current location
@@ -202,6 +229,10 @@ export default function FloatingSearchCapsule({
       destCoords,
       startingSoc,
       passengers,
+      arrivalReserveSoc,
+      acOn,
+      drivingMode,
+      connectorTypes,
     });
 
     setIsExpanded(false);
@@ -246,6 +277,23 @@ export default function FloatingSearchCapsule({
             placeholder="Search destination or plan route..."
             className="flex-1 text-[14px] bg-transparent outline-none text-slate-800 placeholder-slate-400 font-normal"
           />
+
+          {/* Quick Starting SoC Pill */}
+          <div
+            className="flex items-center space-x-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded-full text-xs shrink-0"
+            title="Quick Starting Battery SoC (%)"
+          >
+            <Zap className="w-3 h-3 text-amber-500 fill-amber-500" />
+            <input
+              type="number"
+              min={5}
+              max={100}
+              value={startingSoc}
+              onChange={(e) => setStartingSoc(Math.max(5, Math.min(100, Number(e.target.value) || 5)))}
+              className="w-7 bg-transparent text-center font-bold text-slate-700 outline-none text-xs"
+            />
+            <span className="text-[10px] text-slate-400 font-semibold">%</span>
+          </div>
 
           {/* Quick Directions Button (Opens A to B Planner) */}
           <button
@@ -522,6 +570,99 @@ export default function FloatingSearchCapsule({
                 onChange={(e) => setStartingSoc(Number(e.target.value))}
                 className="w-full accent-blue-600 h-1.5 bg-slate-100 rounded-lg cursor-pointer"
               />
+            </div>
+
+            {/* Destination Arrival Reserve SoC */}
+            <div>
+              <div className="flex justify-between items-center text-slate-600 mb-1 font-medium">
+                <span className="flex items-center space-x-1">
+                  <span>Destination Arrival Buffer</span>
+                  <span className="text-[10px] text-slate-400 font-normal">(Min SoC)</span>
+                </span>
+                <span className="font-mono font-bold text-emerald-600 text-sm">{arrivalReserveSoc}%</span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={50}
+                value={arrivalReserveSoc}
+                onChange={(e) => setArrivalReserveSoc(Number(e.target.value))}
+                className="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg cursor-pointer"
+              />
+            </div>
+
+            {/* Driving Mode & Climate Control AC */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div>
+                <span className="block text-slate-600 font-medium mb-1">Drive Mode</span>
+                <div className="flex rounded-lg bg-slate-100 p-0.5 border border-slate-200">
+                  {(["eco", "normal", "sport"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setDrivingMode(mode)}
+                      className={`flex-1 py-1 text-[10px] font-bold uppercase rounded-md transition ${
+                        drivingMode === mode
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <span className="block text-slate-600 font-medium mb-1">Cabin AC</span>
+                <button
+                  type="button"
+                  onClick={() => setAcOn(!acOn)}
+                  className={`w-full py-1 px-2.5 rounded-lg border text-[11px] font-semibold flex items-center justify-center space-x-1.5 transition ${
+                    acOn
+                      ? "bg-cyan-50 border-cyan-200 text-cyan-700 shadow-sm"
+                      : "bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100"
+                  }`}
+                >
+                  <Wind className={`w-3.5 h-3.5 ${acOn ? "text-cyan-600 animate-spin" : "text-slate-400"}`} />
+                  <span>AC {acOn ? "Active" : "Off"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Connector Filter Selection */}
+            <div>
+              <span className="block text-slate-600 font-medium mb-1 text-[11px]">Connector Filter</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: "CCS2", label: "CCS-2 (DC)" },
+                  { id: "TYPE2", label: "Type-2 (AC)" },
+                  { id: "GBT", label: "GB/T" },
+                  { id: "15A", label: "15A Socket" },
+                ].map((conn) => {
+                  const isSelected = connectorTypes.includes(conn.id);
+                  return (
+                    <button
+                      key={conn.id}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          setConnectorTypes(connectorTypes.filter((c) => c !== conn.id));
+                        } else {
+                          setConnectorTypes([...connectorTypes, conn.id]);
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition ${
+                        isSelected
+                          ? "bg-blue-600 border-blue-600 text-white"
+                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {conn.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 

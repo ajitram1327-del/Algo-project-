@@ -99,6 +99,9 @@ export interface RouteSummary {
   driver_briefing?: string;
   battery_health?: BatteryHealthAudit;
   weather_impact?: WeatherImpactSummary;
+  destination_reserve_soc_percent?: number;
+  destination_reserve_met?: boolean;
+  estimated_elevation_source?: string;
 }
 
 export const fetchVehicles = async (): Promise<Vehicle[]> => {
@@ -154,6 +157,10 @@ export const evaluateRoutePhysics = async (payload: {
   dest_lat?: number;
   dest_lon?: number;
   coordinates?: number[][];
+  destination_reserve_soc_percent?: number;
+  ac_on?: boolean;
+  driving_mode?: string;
+  connector_types?: string[];
 }): Promise<RouteSummary> => {
   const res = await axios.post(`${API_BASE}/api/route/evaluate`, payload);
   return res.data;
@@ -229,6 +236,10 @@ export const evaluateStreamlinedRoute = async (payload: {
   variant_id?: string;
   vehicle_model?: string;
   ambient_temp_c?: number;
+  destination_reserve_soc_percent?: number;
+  ac_on?: boolean;
+  driving_mode?: string;
+  connector_types?: string[];
 }): Promise<RouteSummary & { calibration_status?: any }> => {
   const res = await axios.post(`${API_BASE}/api/route/evaluate-streamlined`, payload);
   return res.data;
